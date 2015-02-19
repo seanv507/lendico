@@ -1,0 +1,7 @@
+LIBRARY pricing
+
+EXPORTS
+	calcSurvival
+	polyval
+	calcPayments
+	calcRates
