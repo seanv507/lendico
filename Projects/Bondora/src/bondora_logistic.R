@@ -1,6 +1,7 @@
 require(xlsx)
 require(plyr)
 require(ggplot2)
+require(GGally)
 require(gridExtra)
 require(data.table)
 require(lubridate)
@@ -42,7 +43,7 @@ logloss<-function(actual,target){
 # train ->test score
 # plot results
 
-dict<-read.xlsx('C:\\Users\\Sean Violante\\Documents\\Projects\\lendico\\Projects\\Bondora\\data\\BondoraAll.xlsm',
+dict<-read.xlsx('C:\\Users\\Sean Violante\\Documents\\Projects\\lendico\\Projects\\Bondora\\data\\BondoraAll03.xlsm',
                 sheetName='BondoraLoanDictionaryClean', stringsAsFactors=FALSE)
 
 load_data<-function(dict){
@@ -51,6 +52,13 @@ load_data<-function(dict){
                      fileEncoding="UTF-8")
   
   loandata[dates_names]<-lapply(loandata[dates_names], function (x) as.Date(x,format='%Y-%m-%d'))
+  
+  
+  # factors naturally handle NAs - problem of what to do for reals and ints - 
+  loandata$nr_of_dependants[is.na(loandata$nr_of_dependants)]='Blank'
+  loandata$nr_of_dependants<-as.factor(loandata$nr_of_dependants)
+  
+  
 # for each factor (that isn't boolean)
 #replace code by value
 # first turn code variables  into factors
@@ -59,11 +67,12 @@ load_data<-function(dict){
   factor_fields<-make.names(factor_fields_orig)
 
   loandata[factor_fields]<-lapply(loandata[factor_fields], as.factor)
+# TODO rearrange work experience, higher education, 
 
 # remove factors for which either already named factor or description too long
   dont_relevel<-c('CreditGroup', 'Country','ApplicationSignedWeekday', 'ApplicationSignedHour', 'ApplicationType', 
                   'Employment_Duration_Current_Employer', 'BondoraCreditHistory', 'MonthlyPaymentDay', 
-                  'work_experience','Rating_V0', 'Rating_V1')
+                  'nr_of_dependants', 'work_experience','Rating_V0', 'Rating_V1')
   factor_fields_rename<-factor_fields_orig[!factor_fields_orig  %in% dont_relevel]
 
   # now put description in
@@ -89,6 +98,11 @@ factor_fields<-z$factors
 z1<-as.character(loandata$occupation_area)
 z1[is.na(z1)]='blank'
 loandata$occupation_area=as.factor(z1)
+
+
+z1[is.na(z1)]='blank'
+loandata$occupation_area=as.factor(z1)
+
 
 # process ints
 
@@ -120,16 +134,20 @@ paste(request_factors)
 
 drop_reals<-c('AmountOfInvestments',  'AmountOfBids')
 request_reals<-request_reals [!request_reals  %in% drop_reals]
-
-
-
+drop_more_reals<-c('income_from_principal_employer','IncomeFromPension','IncomeFromFamilyAllowance', 'IncomeFromSocialWelfare',
+'IncomeFromLeavePay','IncomeFromChildSupport','income_other','AmountOfPreviousApplications','AmountOfPreviousLoans','PreviousRepayments', 'PreviousLateFeesPaid')
+request_reals<-request_reals [!request_reals  %in% drop_more_reals]
+# determine where to label selection flags (& whether to include all other filters) ..
+# better to label everything if write to main df (or likely to have old data in other rows via bugs)
 
 # select data
 # filter out loans that have been issued and NOT been extended
-selected_loans=(!is.na(loandata$LoanDate) )  & (loandata$CurrentLoanHasBeenExtended==0) & (loandata$MaturityDate_Last==loandata$MaturityDate_Original)
-
+loan_issued<-(!is.na(loandata$LoanDate) )
+loan_unchanged<-loan_issued & (loandata$CurrentLoanHasBeenExtended==0) & (loandata$MaturityDate_Last==loandata$MaturityDate_Original)
+loan_verified<-loan_issued &  loandata$VerificationType=='Income and expenses verified'
+  
 loandata$selected_loans_6m<-( !is.na(loandata$LoanDate) & (interval(loandata$LoanDate,loandata$ReportAsOfEOD)/edays(1)>180))
-loandata$selected_loans_6m<-loandata$selected_loans_6m & selected_loans
+loandata$selected_loans_6m<-loandata$selected_loans_6m & loan_unchanged
 # define default
 loandata$defaulted_before_6m[loandata$selected_loans_6m]<-!is.na(loandata$DefaultedOnDay[loandata$selected_loans_6m]) & loandata$DefaultedOnDay[loandata$selected_loans_6m]<=180
 
@@ -150,7 +168,7 @@ loans_dt_ints_all<-summary_factors(loans_dt, target_variable,request_ints)
 loans_dt_facs_all<-summary_factors(loans_dt, target_variable,request_factors)
 loans_dt_reals_all<-summary_reals(loans_dt, target_variable,request_reals)
 
-report_name<-paste0('univariate_factors_no_resched',target_variable,'.pdf')
+report_name<-paste0('univariate_factors_no_resched_',target_variable,'.pdf')
 
 p<-ggplot(data=loans_dt_facs_all, aes(x=value, y=rate*100,size=N, ymin=rate*100-100*std_err,ymax=rate*100+100*std_err) ) +  
   geom_point()+scale_size_area()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
@@ -158,41 +176,92 @@ plots<-dlply(loans_dt_facs_all,"fact",  function(x) `%+%`(p,x)+xlab(x$fact[[1]])
 ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
 ggsave(report_name, ml, width=21,height=27)
 
-report_name<-paste0('univariate_ints_',target_variable,'.pdf')
+report_name<-paste0('univariate_ints_no_resched_',target_variable,'.pdf')
 p<-ggplot(data=loans_dt_ints_all, aes(x=value, y=rate*100,ymin=rate*100-100*std_err,ymax=rate*100+100*std_err) ) +  
-  geom_point()+scale_size_range()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
+  geom_point()+scale_size_area()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
 # replace current dataframe `%+%`, and provide labels
 plots<-dlply(loans_dt_ints_all,"fact",  function(x) `%+%`(p,x)+xlab(x$fact[[1]])  )
 ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
 ggsave(report_name, ml, width=21,height=27)
 
 
-report_name<-paste0('univariate_reals_',target_variable,'.pdf')
+report_name<-paste0('univariate_reals_no_resched_',target_variable,'.pdf')
 loans_dt_reals_all$default<-loans_dt_reals_all$defaulted_before_6m==TRUE
-ml<-ggplot(data=loans_dt_reals_all,aes(x=defaulted_before_6m,ymin=`Min.`,lower=`1st Qu.`, middle=`Median`, upper=`3rd Qu.`, ymax=`Max.`))+geom_boxplot(stat='identity') +facet_wrap(~variable,scales='free')
+# need dataframe just because of invalid column names
+ml<-ggplot(data=data.frame(loans_dt_reals_all),aes_string(x=target_variable,ymin='Min.',lower='X1st.Qu.', middle='Median', upper='X3rd.Qu.', ymax='Max.'))+geom_boxplot(stat='identity') +facet_wrap(~variable,scales='free')
+
+
 ggsave(report_name, ml, width=21,height=27)
 
+
+
+# histogram & density
+ggplot(data=loans,aes(x=LiabilitiesToIncome,y=..density..,fill=defaulted_before_6m))+geom_histogram(alpha=0.4,position='identity')
+ggplot(data=loans,aes(x=LiabilitiesToIncome,colour=defaulted_before_6m))+geom_line(stat='density')
+report_name<-paste0('hist_reals_no_resched_',target_variable,'.pdf')
+p<-ggplot(data=loans,aes(y=..density..,fill=defaulted_before_6m))+geom_histogram(alpha=0.4,position='identity')
+
+plots<-llply(request_reals,  function(x) p+aes_string(x)  )
+ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
+ggsave(report_name, ml, width=21,height=27)
+
+
+p<-ggplot(data=loans_dt_facs_all, aes(x=value, y=rate*100,size=N, ymin=rate*100-100*std_err,ymax=rate*100+100*std_err) ) +  
+  geom_point()+scale_size_area()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
+plots<-dlply(loans_dt_facs_all,"fact",  function(x) `%+%`(p,x)+xlab(x$fact[[1]])  )
+ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
+ggsave(report_name, ml, width=21,height=27)
 
 
 
 predict_cols<-c('AppliedAmount','AppliedAmountToIncome','DebtToIncome','FreeCash','LiabilitiesToIncome','NewLoanMonthlyPayment', 'NewPaymentToIncome','SumOfBankCredits', 'SumOfOtherCredits')
 #predict_cols<-request_reals
-predict_cols<-c('NewPaymentToIncome','LiabilitiesToIncome','VerificationType','Gender','UseOfLoan','education_id','marital_status_id','employment_status_id','Employment_Duration_Current_Employer','occupation_area','home_ownership_type_id')
+predict_cols<-c('NewPaymentToIncome','LiabilitiesToIncome',
+                'VerificationType','Gender','UseOfLoan',
+                'education_id','marital_status_id','employment_status_id','Employment_Duration_Current_Employer','occupation_area',
+                'home_ownership_type_id')
 
+
+predict_cols<-c('NewPaymentToIncome','LiabilitiesToIncome','UseOfLoan',
+                'VerificationType','Gender',
+                'education_id','marital_status_id','employment_status_id','Employment_Duration_Current_Employer','occupation_area',
+                'home_ownership_type_id')
 
 
 
 loans_selected<-loandata[loandata$selected_loans_6m,]
 
+pai=c('NewPaymentToIncome','LiabilitiesToIncome','UseOfLoan',
+'VerificationType','credit_score','CreditGroup')
+ggpairs(data=loans[,pai])
+
+y1<-as.matrix(loans_selected$defaulted_before_6m==TRUE)
+
 #x1<-model.matrix(AD~(NewPaymentToIncome+LiabilitiesToIncome)*(VerificationType + Gender+ UseOfLoan+education_id+marital_status_id+employment_status_id+Employment_Duration_Current_Employer+occupation_area+home_ownership_type_id)-1,data=loandata[selected_loans,])
 #y<-loandata[selected_loans,'AD']==1
 
+reals_formula<-formula(defaulted_before_6m~AppliedAmount+AppliedAmountToIncome+DebtToIncome+FreeCash+LiabilitiesToIncome+NewLoanMonthlyPayment+NewPaymentToIncome+SumOfBankCredits+SumOfOtherCredits-1)
+ints_formula<-update.formula(reals_formula, . ~ Age+LoanDuration+nr_of_dependants+CountOfBankCredits+CountOfPaydayLoans+CountOfOtherCredits+NoOfPreviousApplications+NoOfPreviousLoans-1   )
+# factors_formula<-update.formula(reals_formula, . ~VerificationType+Gender+credit_score+CreditGroup+UseOfLoan+education_id+
+#                                   marital_status_id+nr_of_dependants+
+#                                   employment_status_id+Employment_Duration_Current_Employer+work_experience+occupation_area+
+#                                   home_ownership_type_id+BondoraCreditHistory+Rating_V0+Rating_V1-1)
+x1<-model.matrix(factors_formula,data=loans_selected)
+x1<-model.matrix(defaulted_before_6m~VerificationType+AppliedAmountToIncome-1,data=loans_selected)
 
-x1<-model.matrix(defaulted_before_6m~AppliedAmount+AppliedAmountToIncome+DebtToIncome+FreeCash+LiabilitiesToIncome+NewLoanMonthlyPayment+NewPaymentToIncome+SumOfBankCredits+SumOfOtherCredits-1,data=loans_selected)
-y1<-as.matrix(loans_selected$defaulted_before_6m==TRUE)
+
 cv.fit<-cv.glmnet(x1,y1,family='binomial')
+predict_tr<-predict(cv.fit,x1,type='response',s='lambda.1se')
+coef(cv.fit,s='lambda.1se')
+gini(predict_tr,y1)
 
-fit<-glmnet(x1,y1,family='binomial')
+
+
+
+predict_tr<-predict(fit,x1,type='response',s='s1')
+coef(fit)
+gini(predict_tr,y1)
+
 summary(loandata[(request_fields)])
 
 #extract coefs
