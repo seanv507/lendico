@@ -7,6 +7,17 @@ require(data.table)
 require(lubridate)
 require(glmnet)
 require(ROCR)
+require(reshape2)
+
+# load & format
+# select
+# train test
+# model list
+# train ->test score
+# plot results
+# store models and results 
+# store models with training data
+# split out model from generic code...
 
 
 summary_reals<-function(dt, target,real_vars){
@@ -49,7 +60,7 @@ glm_boot_gen<-function(family, measure, lambda, pred_type){
   
 }
 
-gini<-function((predictions,labels){}
+gini<-function(predictions,labels){
   pred<-prediction(predictions,labels)
   perf<-performance(pred, measure = "auc")
   perf@'y.values'[[1]]*2-1
@@ -60,13 +71,7 @@ logloss<-function(actual,target){
   err=-((target==1)*log(actual)+(target==0)*log(1-actual))
   mean(err)
 }
-# load & format
-# select
-# train test
-# model list
-# train ->test score
-# plot results
-# store models and results 
+
 dict<-read.xlsx('C:\\Users\\Sean Violante\\Documents\\Projects\\lendico\\Projects\\Bondora\\data\\BondoraAll03.xlsm',
                 sheetName='BondoraLoanDictionaryClean', stringsAsFactors=FALSE)
 
@@ -130,10 +135,6 @@ factor_fields<-z$factors
 
 # glmnet needs NA removed
 z1<-as.character(loandata$occupation_area)
-z1[is.na(z1)]='blank'
-loandata$occupation_area=as.factor(z1)
-
-
 z1[is.na(z1)]='blank'
 loandata$occupation_area=as.factor(z1)
 
