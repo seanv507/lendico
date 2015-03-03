@@ -67,6 +67,8 @@ gini<-function(predictions,labels){
   
 }
 
+logit<-function (x) 1/(1+exp(-x))
+
 logloss<-function(actual,target){
   err=-((target==1)*log(actual)+(target==0)*log(1-actual))
   mean(err)
@@ -293,6 +295,10 @@ base_formula<-formula(defaulted_before_6m~VerificationType+Gender+UseOfLoan+Loan
   employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
   marital_status_id+nr_of_dependants_1+home_ownership_type_id+  
   CountOfBankCredits+CountOfOtherCredits-1)
+base_formula_no_credits<-formula(defaulted_before_6m~VerificationType+Gender+UseOfLoan+LoanDuration+education_id+ 
+                        employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
+                        marital_status_id+nr_of_dependants_1+home_ownership_type_id  -1)
+
 # factors_formula<-update.formula(reals_formula, . ~VerificationType+Gender+credit_score+CreditGroup+UseOfLoan+education_id+
 #                                   marital_status_id+nr_of_dependants+
 #                                   employment_status_id+Employment_Duration_Current_Employer+work_experience+occupation_area+
@@ -300,7 +306,7 @@ base_formula<-formula(defaulted_before_6m~VerificationType+Gender+UseOfLoan+Loan
 x1<-model.matrix(factors_formula,data=loans_selected)
 x1<-model.matrix(defaulted_before_6m~VerificationType+AppliedAmountToIncome-1,data=loans_selected)
 
-x1<-model.matrix(base_formula,data=loans_selected)
+x1<-model.matrix(base_formula_no_credits,data=loans_selected)
 
 cv.fit<-cv.glmnet(x1,y1,family='binomial', type.measure='auc')
 predict_tr<-predict(cv.fit,x1,type='response',s='lambda.1se')
@@ -337,3 +343,9 @@ b<-colMeans(a)
 c<-data.frame(m=b,s=b1/sqrt(10))
 d<-c[order(c$m),]
 ggplot(d,aes(x=1:647,y=m))+geom_point()+geom_errorbar(aes(ymax=m+s,ymin=m-s))
+
+
+loans_attribute$score_bd=logit(-0.547780803 +
+                                 -0.099912729 +
+                                 -0.002036076*loans_attribute$duration_months+
+                                 0.118092729*(loans_attribute$user_income_employment_length_years<1))
