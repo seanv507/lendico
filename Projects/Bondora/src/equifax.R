@@ -87,10 +87,25 @@ equi_principal_duration<-function(bondora){
 #UseOfLoan
 equi_loan_purpose<-function(x){
     # 2 NA
-  7* (is.na(x) | x %in% ('Other')) + 
-  0* (!is.na(x) & x %in% c('Vehicle','Loan consolidation')) + 
-  20*(!is.na(x) & x %in% c('Home improvement'))
+  0* (!is.na(x) & x %in% c('Vehicle','Loan consolidation')) +
+  20*(!is.na(x) & x %in% c('Home improvement'))+
+  7* (is.na(x) | !x %in% c('Vehicle','Loan consolidation','Home improvement'))  
+  
+  
 }
+
+equi_pd<-read.xlsx('..\\data\\Calculo PD Modelo Experto Lendico V2_AR.xlsx',
+                sheetName='PD', rowIndex=seq(12,345),colIndex=seq(2,11),stringsAsFactors=FALSE)
+
+equi_make_fac<-function(ld){
+  equi_labels<-grepl('equi_',colnames(ld))
+  for (e in colnames(ld)[equi_labels]){
+    ld[paste0(e,"_fac")]<-as.factor(ld[[e]])
+  }
+  ld
+  
+}
+
 
 
 equi_loandata<-function(ld){
@@ -105,12 +120,32 @@ equi_loandata<-function(ld){
   ld$equi_employment_length<-equi_employment_length(ld)
   ld$equi_net_income<-equi_net_income(ld$income_total)
   ld$equi_principal_duration<-equi_principal_duration(ld)
+  ld$equi_second_holder<-0 #no second holder
   ld$equi_loan_purpose<-equi_loan_purpose(ld$UseOfLoan)
+  ld$equi_risk_score<-25
+  # take variables and turn them into factors for model
   
+  ld$eqi_score<-rowSums(ld[grepl('equi_',colnames(ld))])
+  # should rename so distinguish
+  ld<-equi_make_fac(ld)
   
+  z1<-merge(ld[c('eqi_score')],equi_pd[c("Score","Estimated.Bad.Rate")],all.x=TRUE,by.x='eqi_score',by.y='Score')
+  ld$eqi_pd<-z1$Estimated.Bad.Rate
+  ld$eqi_pd_6m<- 1-(1-ld$eqi_pd)^.5
   ld
 }
 
-table(z$marital_status_id,z$equi_marital)
-table(z$education_id,z$equi_education)
-table(z$education_id,z$equi_education)
+loandata<-equi_loandata(loandata)
+
+table(loandata$Age,loandata$equi_age)
+table(loandata$equi_city)
+table(loandata$marital_status_id,loandata$equi_marital)
+table(loandata$education_id,loandata$equi_education)
+table(loandata$equi_time_at_bank)
+table(loandata$equi_payment_card_type)
+table(loandata$employment_status_id,loandata$occupation_area=='Civil service & military',loandata$equi_employment_status)
+table(loandata$employment_status_id=="Retiree",loandata$Employment_Duration_Current_Employer,loandata$equi_employment_length)
+table(floor(loandata$income_total/100)*100,loandata$equi_net_income)
+table(floor(loandata$FundedAmount/1000)*1000,loandata$LoanDuration,loandata$equi_principal_duration)
+table(loandata$equi_second_holder)
+table(loandata$UseOfLoan, loandata$equi_loan_purpose)
