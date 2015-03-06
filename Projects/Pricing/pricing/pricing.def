@@ -4,4 +4,6 @@ EXPORTS
 	calcSurvival
 	polyval
 	calcPayments
+	InvestorNPV
+	NominalRate
 	calcRates

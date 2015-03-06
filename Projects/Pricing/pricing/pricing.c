@@ -1,12 +1,15 @@
 #include <math.h>
 #include <malloc.h>
 
-
+typedef double TAmount;
 int __stdcall calcSurvival(double *survival_rates, double * default_rates, int duration, double pd_year);
 double __stdcall polyval(double * coefficients, int n_coefficients, double x, int min_order);
 int __stdcall calcPayments(double * payments, double * survival_rates, double * default_rates, 
-	int ir_bp, int duration, int amount, int * rr_thresholds, double * recovery_rates, int n_recovery_rates);
-	
+	int ir_bp, int duration, TAmount amount, TAmount * rr_thresholds, double * recovery_rates, int n_recovery_rates);
+double __stdcall InvestorNPV(double duration, double PD, TAmount amount, double base_rate, double nominal_rate, double service_fee, TAmount rr_threshold1, double recovery_rate1,
+	TAmount rr_threshold2, double recovery_rate2);
+double __stdcall  NominalRate(int duration, double PD, TAmount amount, double base_rate, double service_fee, 
+	TAmount rr_threshold1, double recovery_rate1, TAmount rr_threshold2, double recovery_rate2);
 	
 	
 /**
@@ -65,7 +68,7 @@ double __stdcall polyval(double * coefficients, int n_coefficients, double x, in
  @param recovery_rates pay recovery_rates[i_d] if remaining notional<= rr_thresholds[i] 
 */ 
 
-int __stdcall calcPayments(double * payments, double * survival_rates, double * default_rates, int ir_bp, int duration, int amount, int * rr_thresholds, double * recovery_rates, int n_recovery_rates){
+int __stdcall calcPayments(double * payments, double * survival_rates, double * default_rates, int ir_bp, int duration, TAmount amount, TAmount * rr_thresholds, double * recovery_rates, int n_recovery_rates){
 	double tau = 1/12.0;
 	double period_ir = ir_bp *tau/10000.0;
 	double q = 1 + period_ir;
@@ -74,7 +77,8 @@ int __stdcall calcPayments(double * payments, double * survival_rates, double * 
 	double remaining_principal;
 	double q_i=1;
 	double recovery_rate;
-	int i_d, i_rr_threshold, rr_threshold;
+	int i_d, i_rr_threshold;
+	TAmount rr_threshold;
 
 	for (i_d = 0 ; i_d < duration; i_d++ ){
 		remaining_principal = (q_d - q_i ) / (q_d - 1);
@@ -91,19 +95,96 @@ int __stdcall calcPayments(double * payments, double * survival_rates, double * 
 	return 0;
 }
 
+double __stdcall InvestorNPV(double duration, double PD, TAmount amount, double base_rate, double nominal_rate, double service_fee, TAmount rr_threshold1, double recovery_rate1,
+	TAmount rr_threshold2, double recovery_rate2){
+	double df;
+	int n_recovery_rates = 2;
+	double nominal_rate_bp = nominal_rate * 10000;
+	double rr_thresholds[2];
+	double recovery_rates[2];
+	duration = (int)duration; /* only using double because could then use directly from excel spreadsheet?*/
+	if ((duration <= 0) || duration > 1000) return -9999;
+	/* excel makes random calls. make sure do not allocate memory dangerously with garbage inputs*/
+	double * payments = (double *)malloc((duration + 1)*sizeof(double));
+	double * survival_rates = (double *)malloc((duration)*sizeof(double));
+	double * default_rates = (double *)malloc((duration)*sizeof(double));
+	rr_thresholds[0] = rr_threshold1;
+	rr_thresholds[1] = rr_threshold2;
+	recovery_rates[0] = recovery_rate1;
+	recovery_rates[1] = recovery_rate2;
+
+	calcSurvival(survival_rates, default_rates, duration, PD);
+	df = pow(1 + base_rate, -1 / 12.0);
+	calcPayments(payments, survival_rates, default_rates, nominal_rate_bp, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
+	return (1 - service_fee) * polyval(payments, duration, df, 1);
+}
+
+
+double __stdcall NominalRate(int duration, double PD, TAmount amount, double base_rate, double service_fee, TAmount rr_threshold1, double recovery_rate1,
+	TAmount rr_threshold2, double recovery_rate2){
+	double df;
+	int n_recovery_rates = 2;
+	double rr_thresholds[2];
+	double recovery_rates[2];
+	if ((duration <= 0) || duration > 1000) return -9999;
+	/* excel makes random calls. make sure do not allocate memory dangerously with garbage inputs*/
+	double * payments = (double *)malloc((duration + 1)*sizeof(double));
+	double * survival_rates = (double *)malloc((duration)*sizeof(double));
+	double * default_rates = (double *)malloc((duration)*sizeof(double));
+	rr_thresholds[0] = rr_threshold1;
+	rr_thresholds[1] = rr_threshold2;
+	recovery_rates[0] = recovery_rate1;
+	recovery_rates[1] = recovery_rate2;
+
+	int i_left, i_right, ir;
+
+	calcSurvival(survival_rates, default_rates, duration, PD);
+	df = pow(1 + base_rate, -1 / 12.0);
+	i_left = 1; /* =1bp =0.0001*/
+	i_right = 20000; /* 200%*/
+	ir = i_left;
+	calcPayments(payments, survival_rates, default_rates, ir, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
+	if ((1 - service_fee) * polyval(payments, duration, df, 1) >= 1) return -123456; /* magic number*/
+	ir = i_right;
+	calcPayments(payments, survival_rates, default_rates, ir, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
+	if ((1 - service_fee) * polyval(payments, duration, df, 1) < 1) return 123456; /* magic number*/
+	while (i_left + 1 < i_right){
+		ir = (int)(0.5 * (i_left + i_right));
+		calcPayments(payments, survival_rates, default_rates, ir, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
+		if ((1 - service_fee) * polyval(payments, duration, df, 1) < 1){
+			i_left = ir;
+		}
+		else{
+			i_right = ir;
+		}
+		
+	}
+	return ir/10000.0;
+}
+
+/* getExpectedReturn(durationInMonths, PD, principalAmount, nominalRate, serviceFee, LGDs)
+--> calculates the expected return of a loan, useful to calculate returns for institutional investors who get a discount on the service fee
+
+getMaxPD(durationInMonths, principalAmount, nominalRate, baseRate, serviceFee, LGDs)
+--> calculates the default rate at which investors achieve a given return (baseRate)
+double nominal
+*/
+
+
 enum eResults{ e_duration = 0, e_rating = 1, e_amount = 2, e_base_rate = 3, e_service_fee = 4, e_borrower_fee = 5, e_right = 6, e_left = 7, e_last= 8, n_results_cols };
 
 int __stdcall calcRates(double * results, double * base_rates, double * borrower_fees, double * PD_mids, int n_ratings, int * durations, int n_durations, 
-	int * amounts, int n_amounts, int *rr_thresholds, double * recovery_rates, int n_recovery_rates, 
+	TAmount * amounts, int n_amounts, TAmount *rr_thresholds, double * recovery_rates, int n_recovery_rates,
 	double service_fee){
 	int n_results_rows = n_ratings*n_durations*n_amounts;
 	int index, i_col, i, i_duration, i_rating, i_amount;
-	int duration, amount;
+	int duration;
+	TAmount amount;
 	int max_duration = durations[0];
 	int i_left, i_right, ir;
 	double base_rate, pd_year, df, df_check, borrower_fee;
 	double ty_left, ty_right;
-	int tmp_rr_threshold = 1;
+	TAmount tmp_rr_threshold = 1;
 	int use_previous;
 	
 	for (i = 1; i < n_durations; i++){
@@ -155,7 +236,7 @@ int __stdcall calcRates(double * results, double * base_rates, double * borrower
 				amount = amounts[i_amount];
 				use_previous = 0;
 				if (i_amount > 0){
-					i_right = results[(index - 1) + e_right*n_results_rows] * 10000;
+					i_right = (int)(results[(index - 1) + e_right*n_results_rows] * 10000);
 					/* !!! */
 
 					calcPayments(payments, survival_rates, default_rates, i_right, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
