@@ -104,11 +104,12 @@ select
 	, expected_principal_amount
 	, expected_initial_principal_amount
 	, expected_residual_principal_amount		
-	, expected_amount_cum
-	, expected_interest_amount_cum
-	, expected_principal_amount_cum
+	, sum(coalesce(expected_amount,0) ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_amount_cum
+	, sum(coalesce(expected_interest_amount,0) ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_interest_amount_cum
+	, sum(coalesce(expected_principal_amount,0) ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_principal_amount_cum
 	, actual_amount
-	, actual_amount_cum
+	, sum(coalesce(actual_amount,0)) OVER (partition by dwh_country_id, loan_request_nr ORDER BY bd.date) as actual_amount_cum
+	
 	
 from
 	(
@@ -125,9 +126,6 @@ from
 		, principalAmount as expected_principal_amount
 		, initialPrincipalAmount as expected_initial_principal_amount
 		, residualPrincipalAmount as expected_residual_principal_amount		
-		, sum(paymentAmount ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_amount_cum
-		, sum(interestAmount ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_interest_amount_cum
-		, sum(principalAmount ) OVER (partition by b.dwh_country_id, b.loan_request_nr ORDER BY b.intervalPaybackDate) as expected_principal_amount_cum
 	
 	 
 	from paymentplan b -- add expected payback (sum over single date) where exact date
@@ -140,7 +138,6 @@ from
 full outer join
 	(
 	select bd.date, dwh_country_id, fk_loan, fk_user,loan_request_nr, actual_amount
-	, sum(actual_amount) OVER (partition by dwh_country_id, loan_request_nr ORDER BY bd.date) as actual_amount_cum
 	from ( 
 		select b.created_at as date, b.dwh_country_id, fk_loan, fk_user,b.loan_request_nr, sum(actual_amount)actual_amount
 		from actual_payments b  
