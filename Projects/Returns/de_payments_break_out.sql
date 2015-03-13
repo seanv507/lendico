@@ -1,4 +1,4 @@
-  with paymentplan as
+with paymentplan as
 (
 select 
 	a.dwh_country_id
@@ -98,9 +98,7 @@ select
 	, coalesce(pp.fk_loan, ap.fk_loan) as fk_loan
 	, coalesce(pp.loan_request_nr,ap.loan_request_nr) as loan_request_nr
 	, coalesce(pp.date,ap.date) as date
-	, next_date
-	, expected_amount_cum 
-	, intervalPaybackDate 
+	, next_date 
 	, expected_amount
 	, expected_interest_amount
 	, expected_principal_amount
@@ -153,5 +151,5 @@ full outer join
 on (pp.dwh_country_id=ap.dwh_country_id	and pp.loan_request_nr=ap.loan_request_nr and ap.date=pp.date)	
 where  coalesce(pp.date,ap.date) <=current_date
 
-order by date limit 1000
+order by dwh_country_id,fk_loan,date 
 ;
