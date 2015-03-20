@@ -1,273 +1,136 @@
+reals_formula<-formula(~AppliedAmount+AppliedAmountToIncome+DebtToIncome+FreeCash+LiabilitiesToIncome+NewLoanMonthlyPayment+NewPaymentToIncome+SumOfBankCredits+SumOfOtherCredits-1)
+ints_formula<-update.formula(reals_formula, . ~ Age+LoanDuration+nr_of_dependants+CountOfBankCredits+CountOfPaydayLoans+CountOfOtherCredits+NoOfPreviousApplications+NoOfPreviousLoans-1   )
 
-dict<-read.xlsx('..\\data\\BondoraAll03.xlsm',
-                sheetName='BondoraLoanDictionaryClean', stringsAsFactors=FALSE)
+base_formula<-formula(~VerificationType+Gender+UseOfLoan+LoanDuration+education_id+ 
+                        employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
+                        marital_status_id+nr_of_dependants_1+home_ownership_type_id+  
+                        CountOfBankCredits+CountOfOtherCredits-1)
+base_formula_no_credits<-formula(~VerificationType+Gender+UseOfLoan+LoanDuration+education_id+ 
+                                   employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
+                                   marital_status_id+nr_of_dependants_1+home_ownership_type_id  -1)
 
-load_data<-function(dict){
-  dates_names<-unique(dict$column[dict$type=='date'])
-  loandata<-read.csv('..\\data\\LoanData_20150204_es.csv', 
-                     stringsAsFactors=FALSE,fileEncoding="UTF-8")
-  
-  loandata[dates_names]<-lapply(loandata[dates_names], function (x) as.Date(x,format='%Y-%m-%d'))
-  
-  
-  # factors naturally handle NAs - problem of what to do for reals and ints - 
-  loandata$nr_of_dependants[is.na(loandata$nr_of_dependants)]='Blank'
-  loandata$nr_of_dependants<-as.factor(loandata$nr_of_dependants)
-  loandata$nr_of_dependants_1<-!loandata$nr_of_dependants %in% c('Blank','0')
-  
-# for each factor (that isn't boolean)
-#replace code by value
-# first turn code variables  into factors
-  factor_fields_orig<-unique(dict[dict$type=='categ','column'])
-# read.csv calls make.names bydefault.
-  factor_fields<-make.names(factor_fields_orig)
 
-  loandata$work_experience[loandata$work_experience=='']<-'Blank'
-  loandata$work_experience<-factor(loandata$work_experience,levels=c("Blank","LessThan2Years","2To5Years","5To10Years",
-                                                                     "10To15Years","15To25Years","MoreThan25Years"))
-  loandata$work_experience_10=loandata$work_experience %in% c("10To15Years", "15To25Years", "MoreThan25Years")
+equi_formula<- formula(~
+                         equi_age_fac + 
+                         equi_marital_fac +
+                         equi_education_fac +
+                         equi_employment_status_fac + 
+                         equi_employment_length_fac +
+                         equi_net_income_fac +
+                         equi_principal_duration_fac +
+                         equi_loan_purpose_fac -1)
+bondora_formula<- formula(defaulted_before_6m~Rating_V0+Rating_V1-1 )
 
-  loandata$Employment_Duration_Current_Employer[loandata$Employment_Duration_Current_Employer=='']<-'Blank'
-  loandata$Employment_Duration_Current_Employer<-factor(loandata$Employment_Duration_Current_Employer,
-                                                        levels=c("Blank","TrialPeriod", "UpTo1Year","UpTo2Years", "UpTo3Years", "UpTo4Years" ,"UpTo5Years", "MoreThan5Years" ))
-          
-  releveled<-  c('work_experience', 'Employment_Duration_Current_Employer')
-  loandata[factor_fields[!factor_fields %in% releveled] ]<-lapply(loandata[factor_fields[!factor_fields %in% releveled] ], as.factor)
-# TODO rearrange work experience, higher education, 
+verification_formula<-formula(defaulted_before_6m~VerificationType -1)
 
-# remove factors for which either already named factor or description too long
-  dont_relevel<-c('CreditGroup', 'Country','ApplicationSignedWeekday', 'ApplicationSignedHour', 'ApplicationType', 
-                  'Employment_Duration_Current_Employer', 'BondoraCreditHistory', 'MonthlyPaymentDay', 
-                  'nr_of_dependants', 'work_experience','Rating_V0', 'Rating_V1')
-  factor_fields_rename<-factor_fields_orig[!factor_fields_orig  %in% dont_relevel]
-
-  # now put description in
-  for (f in factor_fields_rename){
-    f_clean=make.names(f)
-    # needs to be list for levels change to work
-    code<-as.list(dict[dict$column==f,'value'])
-    meaning<-as.list(dict[dict$column==f,'value.meaning'])
-    levels(loandata[[f_clean]])<-setNames(code,meaning)
-  }
-
-  list(data=loandata, factors=factor_fields)
-}
-
-z<-load_data(dict)
-
-loandata<-z$data
-factor_fields<-z$factors
+models<-c( equi=equi_formula, bond=bondora_formula, veri=verification_formula)
 
 
 
-# glmnet needs NA removed
-z1<-as.character(loandata$occupation_area)
-z1[is.na(z1)]='blank'
-loandata$occupation_area=as.factor(z1)
 
-
-# process ints
-
-int_fields<-unique(dict[dict$type=='integer','column'])
-
-summary(loandata[int_fields])
-
-# empty/0 for spain
-
-drop_ints<-c('TotalNumDebts','TotalMaxDebtMonths','NumDebtsFinance','MaxDebtMonthsFinance',
-             'NumDebtsTelco','MaxDebtMonthsTelco','NumDebtsOther','MaxDebtMonthsOther', 'NoOfInvestments')
-int_fields<-int_fields[!int_fields %in% drop_ints]
-
-real_fields<-unique(dict[dict$type=='real','column'])
-
-request_fields<-unique(dict[dict$category=='request','column'])
-request_reals<-intersect(real_fields,request_fields)
-request_factors<-intersect(factor_fields,request_fields)
-request_ints<-intersect(int_fields,request_fields)
-
-
-drop_request_ints<-c('BidsInvestmentPlan','BidsManual','NoOfBids') 
-request_ints<-request_ints[!request_ints %in% drop_request_ints]
-
-drop_factors<-c('ApplicationType', 'Country','language_code')
-paste('dropping', drop_factors)
-request_factors<-request_factors [!request_factors  %in% drop_factors]
-paste(request_factors)
-
-drop_reals<-c('AmountOfInvestments',  'AmountOfBids')
-request_reals<-request_reals [!request_reals  %in% drop_reals]
-drop_more_reals<-c('income_from_principal_employer','IncomeFromPension','IncomeFromFamilyAllowance', 'IncomeFromSocialWelfare',
-'IncomeFromLeavePay','IncomeFromChildSupport','income_other',
-'AmountOfPreviousApplications','AmountOfPreviousLoans','PreviousRepayments', 'PreviousLateFeesPaid', 'PreviousEarlyRepayments')
-request_reals<-request_reals [!request_reals  %in% drop_more_reals]
 # determine where to label selection flags (& whether to include all other filters) ..
 # better to label everything if write to main df (or likely to have old data in other rows via bugs)
 
 # select data
 # filter out loans that have been issued and NOT been extended
-loan_issued<-(!is.na(loandata$LoanDate) )
-loan_unchanged<-loan_issued & (loandata$CurrentLoanHasBeenExtended==0) & (loandata$MaturityDate_Last==loandata$MaturityDate_Original)
-loan_verified<-loan_issued &  loandata$VerificationType=='Income and expenses verified'
+# loan_ (singular) is for boolean vector, loans_ is dataframe
+loan_issued<-!is.na(loandata$LoanDate)
+
+# NA if loan not issued, otherwise could have been cancelled, defaulted or still live
+loandata$surv_time<-pmin(interval(loandata$LoanDate,loandata$ReportAsOfEOD)/edays(1), 
+                interval(loandata$LoanDate,loandata$ContractEndDate)/edays(1),
+                loandata$DefaultedOnDay,na.rm=TRUE)
+
+
+loans_issued<-loandata[loan_issued, ]
+
+loandata$loan_unchanged<-loan_issued & 
+  (loandata$CurrentLoanHasBeenExtended==0) & 
+  (loandata$MaturityDate_Last==loandata$MaturityDate_Original)
+loandata$loan_cancelled<-loan_issued & 
+  !is.na(loandata$ContractEndDate) & 
+  (loandata$ContractEndDate==loandata$FirstPaymentDate) 
+
+#loan_verified<-loan_issued &  loandata$VerificationType=='Income and expenses verified'
   
-loandata$selected_loans_6m<-( !is.na(loandata$LoanDate) & (interval(loandata$LoanDate,loandata$ReportAsOfEOD)/edays(1)>180))
+loan_elapsed_6m<-( loan_issued & (interval(loandata$LoanDate,loandata$ReportAsOfEOD)/edays(1)>180))
+loan_elapsed_6m_mod<-( !is.na(loandata$FirstPaymentDate) & 
+                         (interval(loandata$FirstPaymentDate,loandata$ReportAsOfEOD)/edays(1)>150))
+
+loandata$defaulted_before_6m<-!is.na(loandata$DefaultedOnDay) & 
+  loandata$DefaultedOnDay<=180
+loandata$defaulted_before_6m_or_restructured<-loandata$defaulted_before_6m | 
+  !loandata$loan_unchanged
+loandata$defaulted_before_6m_mod<-!is.na(loandata$Default_StartDate) & 
+  (interval(loandata$FirstPaymentDate,loandata$Default_StartDate)/edays(1)<=150)
+
+loan_selections <- list(elapsed_6m=list(select=loan_elapsed_6m ,target="defaulted_before_6m"),
+     elapsed_6m_unchanged=list(select=loan_elapsed_6m & loan_unchanged,target="defaulted_before_6m"),
+     elapsed_6m_restructured=list(select=loan_elapsed_6m ,target="defaulted_before_6m_or_restructured"),
+     elapsed_6m_mod=list(select=loan_elapsed_6m_mod, target="defaulted_before_6m_mod"),
+     elapsed_6m_mod_unchanged=list(select=loan_elapsed_6m_mod & loan_unchanged, target="defaulted_before_6m_mod")
+     )
+z<-data.frame()
+j<-0
+for (data in loan_selections){
+  
+  j<-j+1
+  loan_selected<-data$select
+  target_variable<-data$target
+  loans_selected<-loandata[loan_selected,]
 
 
-loandata$selected_loans_6m<-loandata$selected_loans_6m & loan_unchanged
-tr_te=rbinom(sum(loandata$selected_loans_6m),1,.7)
-loandata$selected_loans_6m_train<- -1 # our label for missing,  0 =test, 1 =train
-loandata$selected_loans_6m_train[loandata$selected_loans_6m]<-tr_te
-
-
-
-# define default
-loandata$defaulted_before_6m[loandata$selected_loans_6m]<-!is.na(loandata$DefaultedOnDay[loandata$selected_loans_6m]) & loandata$DefaultedOnDay[loandata$selected_loans_6m]<=180
-
-# datatable does fast grouping etc
-loandata_dt<-data.table(loandata)
-
-
-loans_tr<-loandata[loandata$selected_loans_6m_train==1,]
-loans_te<-loandata[loandata$selected_loans_6m_train==0,]
-loans_dt_tr<-loandata_dt[loandata_dt$selected_loans_6m_train==1,]
-loans_dt_te<-loandata_dt[loandata_dt$selected_loans_6m_train==0,]
-
-
-target_variable<-'defaulted_before_6m'
-
-
-rate_overall<-loans_dt_tr[,c(N=.N,rate=mean(get(target_variable)))]
-
-loans_dt_ints_all<-summary_factors(loans_dt_tr, target_variable,request_ints)
-loans_dt_facs_all<-summary_factors(loans_dt_tr, target_variable,request_factors)
-loans_dt_reals_all<-summary_reals(loans_dt_tr, target_variable,request_reals)
-loans_dt_ints_all$data="train"
-loans_dt_facs_all$data="train"
-loans_dt_reals_all$data="train"
-
-loans_dt_te_ints_all<-summary_factors(loans_dt_te, target_variable,request_ints)
-loans_dt_te_facs_all<-summary_factors(loans_dt_te, target_variable,request_factors)
-loans_dt_te_reals_all<-summary_reals(loans_dt_te, target_variable,request_reals)
-loans_dt_te_ints_all$data="test"
-loans_dt_te_facs_all$data="test"
-loans_dt_te_reals_all$data="test"
-
-loans_dt_eqi_ints_all<-summary_factors_p(loans_dt_tr, "eqi_pd_6m",request_ints)
-loans_dt_eqi_facs_all<-summary_factors_p(loans_dt_tr, "eqi_pd_6m",request_factors)
-loans_dt_eqi_reals_all<-summary_reals(loans_dt_tr,"eqi_pd_6m",request_reals)
-loans_dt_eqi_ints_all$data="equi"
-loans_dt_eqi_facs_all$data="equi"
-loans_dt_eqi_reals_all$data="equi"
-
-report_name<-paste0('univariate_factors_no_resched_',target_variable,'.pdf')
-mg<-rbind(loans_dt_facs_all,loans_dt_te_facs_all, loans_dt_eqi_facs_all)
-p<-ggplot(data=mg, aes(color=data,x=value, y=rate*100,size=N, ymin=rate*100-100*std_err,ymax=rate*100+100*std_err) ) +  
-  geom_point()+scale_size_area()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
-plots<-dlply(mg,"fact",  function(x) `%+%`(p,x)+xlab(x$fact[[1]])  )
-ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
-
-ggsave(report_name, ml, width=21,height=27)
-
-report_name<-paste0('univariate_ints_no_resched_',target_variable,'.pdf')
-mg<-rbind(loans_dt_ints_all,loans_dt_te_ints_all, loans_dt_eqi_ints_all)
-p<-ggplot(data=mg, aes(color=data, x=value, y=rate*100,size=N, ymin=rate*100-100*std_err,ymax=rate*100+100*std_err) ) +  
-  geom_point()+scale_size_area()+geom_hline(yintercept=rate_overall[['rate']]*100) + coord_flip()
-# replace current dataframe `%+%`, and provide labels
-plots<-dlply(mg,"fact",  function(x) `%+%`(p,x)+xlab(x$fact[[1]])  )
-ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
-ggsave(report_name, ml, width=21,height=27)
-
-
-report_name<-paste0('univariate_reals_no_resched_',target_variable,'.pdf')
-
-# mg<-rbind(loans_dt_reals_all,loans_dt_te_reals_all)
-# loans_dt_eqi_reals_all
-# loans_dt_reals_all$default<-loans_dt_reals_all$defaulted_before_6m==TRUE
-# # need dataframe just because of invalid column names
-ml<-ggplot(data=data.frame(loans_dt_reals_all),
-            aes_string(x=target_variable,ymin='Min.',lower='X1st.Qu.', middle='Median', upper='X3rd.Qu.', ymax='Max.')) + 
-             geom_boxplot(stat='identity') +facet_wrap(~variable,scales='free')
-ggsave(report_name, ml, width=21,height=27)
+  loans_selected_dt<-data.table(loans_selected)
+  
+  
+  #x1<-model.matrix(AD~(NewPaymentToIncome+LiabilitiesToIncome)*(VerificationType + Gender+ UseOfLoan+education_id+marital_status_id+employment_status_id+Employment_Duration_Current_Employer+occupation_area+home_ownership_type_id)-1,data=loandata[selected_loans,])
+  #y<-loandata[selected_loans,'AD']==1
+  
+  
+  
+  set.seed(1234)
+  
+  nfolds<-10
+  cross_val<-sample(nfolds,nrow(loans_selected),replace=TRUE)
+  
+  #z<-cv_test(loans_selected, model_formula,target_variable, cross_val)
+  z1<-lapply(models,function(x) cv_test(loans_selected, x,target_variable, cross_val))
+  z2<-do.call(rbind,z1)
+  z2$data=j
+  z<-rbind(z,z2)  
+}
 
 
 
-# histogram & density
-
-#ggplot(data=loans,aes(x=LiabilitiesToIncome,y=..density..,fill=defaulted_before_6m))+geom_histogram(alpha=0.4,position='identity')
-#ggplot(data=loans,aes(x=LiabilitiesToIncome,colour=defaulted_before_6m))+geom_line(stat='density')
-
-report_name<-paste0('hist_reals_no_resched_',target_variable,'.pdf')
-p<-ggplot(data=loans,aes(y=..density..,fill=defaulted_before_6m))+geom_histogram(alpha=0.4,position='identity')
-
-plots<-llply(request_reals,  function(x) p+aes_string(x)  )
-ml = do.call(marrangeGrob, c(plots, list(nrow=4, ncol=2)))
-ggsave(report_name, ml, width=21,height=27)
-
+z3<-ddply(z,~model+data,summarise,
+          logloss_tr_mean=mean(ll_train),
+          logloss_tr_se=sd(ll_train)/sqrt(length(ll_train)), 
+          logloss_te_mean=mean(ll_test),
+          logloss_te_se=sd(ll_test)/sqrt(length(ll_test)),
+          gini_tr_mean=mean(gini_train),
+          gini_tr_se=sd(gini_train)/sqrt(length(gini_train)), 
+          gini_te_mean=mean(gini_test),
+          gini_te_se=sd(gini_test)/sqrt(length(gini_test)),
+          N=length(gini_test))
 
 
-predict_cols<-c('AppliedAmount','AppliedAmountToIncome','DebtToIncome','FreeCash','LiabilitiesToIncome','NewLoanMonthlyPayment', 'NewPaymentToIncome','SumOfBankCredits', 'SumOfOtherCredits')
-#predict_cols<-request_reals
-predict_cols<-c('NewPaymentToIncome','LiabilitiesToIncome',
-                'VerificationType','Gender','UseOfLoan',
-                'education_id','marital_status_id','employment_status_id','Employment_Duration_Current_Employer','occupation_area',
-                'home_ownership_type_id')
+surv<-Surv(loans_issued$surv_time[loans_issued$surv_time>0 & !is.na(loans_issued$employment_status_id)],
+           event=loans_issued$AD[loans_issued$surv_time>0 & !is.na(loans_issued$employment_status_id)])
 
+z<-survfit(surv)
+plot(z)
+x<-model.matrix(base_formula,data=loans_issued[loans_issued$surv_time>0,])
+cv.fit<-cv.glmnet(x,surv,family="cox")
+plot(cv.fit)
+coef(cv.fit,'lambda.min')
+co<-coef(cv.fit,'lambda.min')
+ind<-which(co!=0)
+cos<-data.frame(row.names=rownames(co)[ind],value=co[ind])
+qplot(x=rownames(cos),y=value,xlab="coeff",data=cos)+coord_flip()
 
-predict_cols<-c('NewPaymentToIncome','LiabilitiesToIncome','UseOfLoan',
-                'VerificationType','Gender',
-                'education_id','marital_status_id','employment_status_id','Employment_Duration_Current_Employer','occupation_area',
-                'home_ownership_type_id')
+#tr_te=rbinom(sum(loan_selected),1,1-test_frac)
 
-pai=c('NewPaymentToIncome','LiabilitiesToIncome','UseOfLoan',
-      'VerificationType','credit_score','CreditGroup')
-ggpairs(data=loans[,pai])
-
-
-
-y1_tr<-as.matrix(loans_tr$defaulted_before_6m==TRUE)
-y1_te<-as.matrix(loans_te$defaulted_before_6m==TRUE)
-
-#x1<-model.matrix(AD~(NewPaymentToIncome+LiabilitiesToIncome)*(VerificationType + Gender+ UseOfLoan+education_id+marital_status_id+employment_status_id+Employment_Duration_Current_Employer+occupation_area+home_ownership_type_id)-1,data=loandata[selected_loans,])
-#y<-loandata[selected_loans,'AD']==1
-
-reals_formula<-formula(defaulted_before_6m~AppliedAmount+AppliedAmountToIncome+DebtToIncome+FreeCash+LiabilitiesToIncome+NewLoanMonthlyPayment+NewPaymentToIncome+SumOfBankCredits+SumOfOtherCredits-1)
-ints_formula<-update.formula(reals_formula, . ~ Age+LoanDuration+nr_of_dependants+CountOfBankCredits+CountOfPaydayLoans+CountOfOtherCredits+NoOfPreviousApplications+NoOfPreviousLoans-1   )
-base_formula<-formula(defaulted_before_6m~VerificationType+Gender+UseOfLoan+LoanDuration+education_id+ 
-  employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
-  marital_status_id+nr_of_dependants_1+home_ownership_type_id+  
-  CountOfBankCredits+CountOfOtherCredits-1)
-base_formula_no_credits<-formula(defaulted_before_6m~VerificationType+Gender+UseOfLoan+LoanDuration+education_id+ 
-                        employment_status_id+Employment_Duration_Current_Employer+work_experience_10+occupation_area+
-                        marital_status_id+nr_of_dependants_1+home_ownership_type_id  -1)
-
-
-equi_formula<- formula(defaulted_before_6m~
-                        equi_age_fac + 
-                        equi_marital_fac +
-                        equi_education_fac +
-                        equi_employment_status_fac + 
-                        equi_employment_length_fac +
-                        equi_net_income_fac +
-                        equi_principal_duration_fac +
-                        equi_loan_purpose_fac -1)
-            
-amount_formula<-formula(defaulted_before_6m~VerificationType -1)
-
-model_formula<-amount_formula
-#x1<-model.matrix(model_formula,data=loans)
-x1_tr<-model.matrix(model_formula,data=loans_tr)
-x1_te<-model.matrix(model_formula,data=loans_te)
-
-cv.fit<-cv.glmnet(x1_tr,y1_tr,family='binomial') #,type.measure='auc')
-s_max<-cv.fit$lambda[length(cv.fit$lambda)]
-
-s='lambda.1se'
-s='lambda.min'
-s=s_max
-predict_tr<-predict(cv.fit,x1_tr,type='response',s=s)
-predict_te<-predict(cv.fit,x1_te,type='response',s=s)
-coef(cv.fit,s=s)
-gini(predict_tr,y1_tr)
-gini(predict_te,y1_te)
+#loans_selected$train_test<-tr_te
 
 plot(cv.fit)
 
@@ -302,3 +165,4 @@ loans_attribute$score_bd=logit(-0.547780803 +
                                  -0.099912729 +
                                  -0.002036076*loans_attribute$duration_months+
                                  0.118092729*(loans_attribute$user_income_employment_length_years<1))
+
