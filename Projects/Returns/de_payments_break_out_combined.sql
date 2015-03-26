@@ -1,6 +1,6 @@
 with paymentplan as
 (
-        SELECT pp.dwh_country_id, pp.fk_loan, pp.fk_loan_request,  lr.loan_request_nr,
+        SELECT pp.dwh_country_id, pp.fk_loan, pp.fk_loan_request,  l.loan_nr as loan_request_nr,
         pp.fk_user_investor, pp.fk_user_borrower, pp.country_name, pp.nominal_interest_percentage, pp.promo_interest_percentage, pp.has_promo_flag, 
         pp.is_repaid_flag, pp.payout_date, pp.interval, pp.interval_payback_date, pp.next_interval_payback_date, pp.loan_coverage, 
         pp.payment_amount_borrower, pp.principal_amount_borrower, pp.interest_amount_borrower, pp.initial_principal_amount_borrower, pp.sum_interval_interest_amount_borrower, 
@@ -15,11 +15,11 @@ with paymentplan as
         pp.eur_residual_interest_amount_investor, pp.eur_residual_principal_amount_investor 
         FROM base.loan_payment_plan_combined_item pp
 
- left join  
-        backend.loan l    
- on    pp.dwh_country_id=1  and l.id_loan=pp.fk_loan and l.dwh_country_id=pp.dwh_country_id and l.state!='canceled' --why left join when no data used from l??
- left join  backend.loan_request lr   on   lr.id_loan_request=l.fk_loan_request and lr.dwh_country_id=l.dwh_country_id
-where pp.loan_coverage>0
+ left join   base.loan l    
+ on     l.id_loan=pp.fk_loan and l.dwh_country_id=pp.dwh_country_id  
+ left join  base.loan_funding lf   on   
+ pp.dwh_country_id=lf.dwh_country_id and pp.fk_loan=lf.fk_loan and pp.fk_user_investor=lf.fk_user
+where pp.dwh_country_id=1 and lf.state='funded' and l.state!='canceled'
 ),
 
 
