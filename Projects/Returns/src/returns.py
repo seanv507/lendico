@@ -1,17 +1,17 @@
 from __future__ import division
 import pandas as pd
+import pandas.io.sql as psql
 import numpy as np
 import matplotlib.pyplot as plt
 import datetime
 import scipy.optimize
-import pandas.io.sql as psql
-import pandas as pd
 
 
 def recovery(amounts):
     return 0.1425 + (0.2613 - .1425) * (amounts <= 25000) \
         + (0.5814 - 0.2613) * (amounts <= 5000)
-    # losses return 0.4186+(0.7387-.4186)*(amounts>5000)+ (0.8575 - 0.7387)*(amounts>25000)
+    # losses return 0.4186+(0.7387-.4186)*(amounts>5000)+
+    #    (0.8575 - 0.7387)*(amounts>25000)
 
 
 def days360_tup(diff):
@@ -33,7 +33,8 @@ def days360(start, end):
 
 
 def xnpv(rs, amount_dcf_or_list, dcfs=None):
-    """ should work for scalars and vectors and DataFrame or list of DataFrames.
+    """ should work for scalars and vectors
+    and DataFrame or list of DataFrames.
     amount_dcf: dataframe,list of dataframes
     taus: is the day count fraction as of the valuation date (tau=0)
     """
@@ -53,10 +54,10 @@ def xnpv(rs, amount_dcf_or_list, dcfs=None):
     return np.sum(amounts * qs)
 
 
-def xirr(amounts, dcfs=None, guess=0.1):
-    # RuntimeError: Failed to converge after 50 iterations, value is nan
+def xirr(amounts, dcfs=None, a=-.99, b=1):
+
     try:
-        z = scipy.optimize.newton(lambda r: xnpv(r, amounts, dcfs), guess)
+        z = scipy.optimize.brentq(lambda r: xnpv(r, amounts, dcfs), a, b)
     except RuntimeError:
         z = np.nan
     return z
@@ -69,7 +70,7 @@ def calc_dcf(dates):
 
 
 def extend_loans(loans):
-    loans.rename(columns={'id_loan':'fk_loan'},inplace=True)
+    loans.rename(columns={'id_loan': 'fk_loan'}, inplace=True)
     loans['rating_base'] = loans.rating.str[0]
     loans['originated_since_date'] = \
         np.array(loans.payout_date, 'datetime64[D]')
@@ -80,15 +81,15 @@ def extend_loans(loans):
 
 
 def extend_loan_fundings(loan_fundings, loans):
-    # cannot merge multiple times 
+    # cannot merge multiple times
     # (pandas will add suffixes to duplicated columns)
     # so better to use new variable fro extended
-    loan_fundings.rename(columns={'fk_user':'fk_user_investor'}, inplace=True)
-    merge_fields=[ 'originated_since_date',
-                  'originated_since_date_EOM', 'dcf',
-                  'payback_day', 'rating_base', 'principal_amount']
-    loan_fundings.drop(merge_fields, axis=1, inplace=True,errors='ignore')
-    
+    loan_fundings.rename(columns={'fk_user': 'fk_user_investor'}, inplace=True)
+    merge_fields = ['originated_since_date',
+                    'originated_since_date_EOM', 'dcf',
+                    'payback_day', 'rating_base', 'principal_amount']
+    loan_fundings.drop(merge_fields, axis=1, inplace=True, errors='ignore')
+
     loan_fundings = \
         loan_fundings.merge(loans[['fk_loan'] + merge_fields], on='fk_loan')
     loan_fundings['payment'] = -loan_fundings.amount
@@ -104,7 +105,8 @@ def extend_actual_payments(actual_payments, loans, arrears_dict):
 
     actual_payments.drop('rating_base', axis=1, inplace=True, errors='ignore')
     actual_payments = \
-        actual_payments.merge(loans[['fk_loan', 'rating_base']],
+        actual_payments.merge(loans[['fk_loan', 'rating_base',
+                                     'originated_since_date']],
                               on='fk_loan',
                               how='left')
 
@@ -138,15 +140,16 @@ def isostr_date(date_str):
 
 
 def generate_residual_act_investor(actual, loan_fundings,
-                                    EOM_date, payment_plans=None):
+                                   EOM_date, payment_plans=None):
     """  generate residual principals for IRR calc.
     if payment plan omitted use all remaining principal
     (ie including in arrears) otherwise use next initial principal
     if default take full outstanding borrower principal
         *(1-1% service fee)  * recovery fraction
-    
+
     """
-    #TODO deal with empty payment plan
+    # TODO deal with empty payment plan
+    # TODO what if default and paid back! loans 27 & 76
     act_fields = ['iso_date', 'rating_base', 'fk_loan', 'fk_user_investor',
                   'in_arrears_since_days_30360',
                   'residual_principal_amount_borrower',
@@ -161,7 +164,8 @@ def generate_residual_act_investor(actual, loan_fundings,
             .rename(columns={'residual_principal_amount_investor': 'payment'})
 
     else:
-        resid_fields = ['rating_base', 'fk_loan', 'fk_user_investor', 'interval_payback_date',
+        resid_fields = ['rating_base', 'fk_loan', 'fk_user_investor',
+                        'interval_payback_date',
                         'initial_principal_amount_investor']
         residual = payment_plans.loc[
             (payment_plans.interval_payback_date > EOM_date) &
@@ -182,9 +186,9 @@ def generate_residual_act_investor(actual, loan_fundings,
             recovery(recovery_payment['residual_principal_amount_borrower'])
         recovery_payment = \
             recovery_payment.merge(
-                loan_fundings[['fk_loan', 'fk_user_investor', 'loan_coverage1']],
-                on=['fk_loan', 'fk_user_investor'],
-                how='left')
+                loan_fundings[
+                    ['fk_loan', 'fk_user_investor', 'loan_coverage1']],
+                on=['fk_loan', 'fk_user_investor'], how='left')
         recovery_payment['payment'] = .99 * recovery_payment['recovery'] * \
             recovery_payment['residual_principal_amount_borrower'] * \
             recovery_payment['loan_coverage1'] / 100.0
@@ -198,6 +202,72 @@ def generate_residual_act_investor(actual, loan_fundings,
         recovery_payment = None
 
     return residual, recovery_payment
+
+
+def calc_act_irr(reporting_dates, act_pay, plan_pay, plan_repaid,
+                 loan_fundings, minimum_vintage, filtered_de_payments):
+
+    irr_df = pd.DataFrame({ 'irr': np.nan}, index=reporting_dates)
+    # paidback loans are filtered out (including defaults!!!)
+    dfs = []
+    for EOM_date in reporting_dates:
+        loan_principals = \
+            loan_fundings.loc[
+                (loan_fundings.originated_since_date <=
+                    (EOM_date - minimum_vintage)) &
+                ~(loan_fundings.fk_loan.isin(filtered_de_payments)),
+                ['rating_base', 'fk_loan', 'fk_user_investor',
+                 'originated_since_date', 'originated_since_date_EOM',
+                 'dcf', 'payment']]
+        # loan payments may have payments for loans that have been filterd out
+
+        act_filter = (act_pay.iso_date <= EOM_date.date()) & \
+                     (act_pay.originated_since_date <=
+                         (EOM_date-minimum_vintage).date())
+        plan_filter = (plan_pay.payout_date <=
+                        (EOM_date - minimum_vintage).date())
+        loan_payments=act_pay.loc[act_filter,
+                        ['rating_base', 'fk_loan', 'fk_user_investor',
+                         'originated_since_date',
+                         'dcf', 'payment_amount_investor_month']]\
+                .rename(columns={'payment_amount_investor_month': 'payment'})
+        residuals, recoveries = generate_residual_act_investor(
+                                    act_pay[act_filter], loan_fundings,
+                                    EOM_date.date(),
+                                    payment_plans=plan_pay[plan_filter])
+        repaid_loans_cash = plan_repaid.loc[plan_repaid.payout_date <=
+                                            (EOM_date-minimum_vintage).date(),
+                                      ['rating_base', 'fk_loan',
+                                      'fk_user_investor', 'payout_date',
+                                       'interval_payback_date', 'dcf',
+                                       'payment_amount_investor']]\
+                            .rename(columns={
+                                    'payout_date': 'originated_since_date',
+                                    'payment_amount_investor':'payment'})
+        gps = [ zx.groupby(['rating_base','dcf']).payment.sum()
+                .reset_index('dcf').groupby(level=0)
+                    for zx in [loan_principals,loan_payments, residuals,
+                            recoveries, repaid_loans_cash] if zx is not None ]
+        df = gps[0].apply(
+                lambda x: xirr([x] +
+                               [z.get_group(x.index[0]) for z in gps[1:]
+                                   if x.index[0] in z.groups.keys()]))
+        dfs.append(df)
+        gps_overall=[zx.groupby(['dcf']).payment.sum().reset_index('dcf') \
+                     for zx in [loan_principals, loan_payments,
+                                residuals, recoveries, repaid_loans_cash]
+                    if zx is not None]
+        irr_df.loc[EOM_date, 'irr'] = xirr(gps_overall)
+    df_all = pd.concat(dfs, keys=reporting_dates)
+    df_all.columns = ['irr']
+    return df_all
+
+        #loan_payments=payments paid before EOM_date
+        #loan_final_principal=remaining principal
+    # what about repayment
+    # what about end of loan
+        #group by rating/date (to sum over investors)
+        #generate IRR
 
 
 def rebase(x):
@@ -217,10 +287,9 @@ def calc_survival_investor(pp):
     survive: probabability of surviving up to (and including) interval
     """
 
-
     pp = pp.copy()
     pp['interval_rebased'] = \
-        pp[['fk_loan','interval']].groupby(['fk_loan']).transform(rebase)
+        pp[['fk_loan', 'interval']].groupby(['fk_loan']).transform(rebase)
 
     pp['surv_month'] = (1 - pp.pd).pow(1 / 12.0)
     pp['survive'] = pp.surv_month.pow(pp.interval_rebased)
@@ -238,141 +307,140 @@ def add_pd(pp, loans, use_in_arrears):
     pp_pd = pp.merge(
         loans[['id_loan', 'pd', 'bucket_pd']],
         left_on='fk_loan', right_on='id_loan')
-    pp_pd['pd']=pp_pd['pd'] / 100.0
+    pp_pd['pd'] = pp_pd['pd'] / 100.0
     pp_pd['pd_noarr'] = pp_pd['pd']
     if use_in_arrears:
-        pp_pd.loc[pp_pd.bucket_pd.notnull(),'pd']=pp_pd.loc[pp_pd.bucket_pd.notnull(),'bucket_pd']
+        pp_pd.loc[pp_pd.bucket_pd.notnull(), 'pd'] = \
+            pp_pd.loc[pp_pd.bucket_pd.notnull(), 'bucket_pd']
     return pp_pd
 
 
-def make_future_pd(payment_plans,loans, arrears_dict, use_in_arrears, EOM_date_str=None, latest_paid_interval=None):
-    """
-        select future payments after EOM_date_str or after last paid_interval
-        if last_paid_interval provided then use those too and set andy dates before EOM to EOM
-        if cut_off is None use all data
-
+def make_future_pd(payment_plans, loans, arrears_dict, use_in_arrears,
+                   EOM_date_str=None, latest_paid_interval=None):
+    """ select future payments after EOM_date_str or after last paid_interval
+        if last_paid_interval provided then use those too and
+        set any dates before EOM to EOM
+        if EOM_date_str is None use all data
     """
 
     if EOM_date_str is not None:
-        EOM_date=datetime.datetime.strptime(EOM_date_str,'%Y-%m-%d').date()
+        EOM_date = isostr_date(EOM_date_str)
         if latest_paid_interval is None:
-            fut=payment_plans[payment_plans.interval_payback_date > EOM_date ]
+            fut = payment_plans[payment_plans.interval_payback_date > EOM_date]
         else:
-            fut=payment_plans.merge( pd.DataFrame(latest_paid_interval),left_on=['fk_loan','fk_user_investor'],right_index=True,how='left')
-            fut=fut[(fut.latest_paid_interval.isnull() )|(fut.interval>fut.latest_paid_interval)]
-            fut.loc[fut.interval_payback_date<EOM_date,"interval_payback_date"]=EOM_date
+            fut = payment_plans.merge(pd.DataFrame(latest_paid_interval),
+                                      left_on=['fk_loan', 'fk_user_investor'],
+                                      right_index=True, how='left')
+            fut = fut[(fut.latest_paid_interval.isnull()) |
+                      (fut.interval > fut.latest_paid_interval)]
+            fut.loc[fut.interval_payback_date < EOM_date,
+                    'interval_payback_date'] = EOM_date
     else:
-        fut=payment_plans.copy()
+        fut = payment_plans.copy()
     # drop intervals already in actual???
-    fut_pd=add_pd(fut, loans, use_in_arrears)
-    fut_pd=calc_survival_investor(fut_pd)
+    fut_pd = add_pd(fut, loans, use_in_arrears)
+    fut_pd = calc_survival_investor(fut_pd)
     return fut_pd
 
 
-
-def generate_cashflows_pp(pp,loan_fundings,loans, EOM_date_str=None):
+def generate_cashflows_pp(pp, loan_fundings, loans, EOM_date_str=None):
+    print " needs to be adjustede but doesnt make sense for time history"
     if EOM_date_str is None:
-        EOM_date_str='2300-01-01'
-    EOM_date=datetime.datetime.strptime(EOM_date_str,'%Y-%m-%d').date()
-    # generate cashflows from plan for xirr ( by taking payment amount, loan funding and residual principal
+        EOM_date_str = '2300-01-01'
+    EOM_date = datetime.datetime.strptime(EOM_date_str, '%Y-%m-%d').date()
+    # generate cashflows from plan for xirr
+    # ( by taking payment amount, loan funding and residual principal
     # exclude loans for which no plan yet or interval zero where
-    cashflows=pp.loc[pp.interval_payback_date<=EOM_date,['fk_loan','fk_user_investor','interval_payback_date','payment_amount_investor']].copy()
+    pp_fields = ['fk_loan', 'fk_user_investor',
+                 'interval_payback_date', 'payment_amount_investor']
+    cashflows = pp.loc[pp.interval_payback_date <= EOM_date, pp_fields].copy()
 
+    cashflows = cashflows[cashflows.payment_amount_investor.notnull()]
+    cashflows['interval_payback_date'] = \
+        np.array(cashflows['interval_payback_date'], 'datetime64[D]')
+    investor_loan_ids = cashflows[['fk_loan', 'fk_user_investor']]\
+        .drop_duplicates()
 
-    cashflows=cashflows[cashflows.payment_amount_investor.notnull()]
-    cashflows['interval_payback_date']=np.array(cashflows['interval_payback_date'],'datetime64[D]')
-    investor_loan_ids=cashflows[['fk_loan','fk_user_investor']].drop_duplicates()
-
-    # filter out cases with no plan yet ( depends on investor because first payment could be <1 cent)
-    cashflows.rename(columns={'fk_loan':'id_loan','interval_payback_date':'date','payment_amount_investor':'payment'},inplace=True)
-    loan_fundings=loan_fundings[['fk_loan','fk_user','originated_since_date','amount']].merge(investor_loan_ids,left_on=['fk_loan','fk_user'],right_on=['fk_loan','fk_user_investor'])
+    # filter out cases with no plan yet
+    # ( depends on investor because first payment could be <1 cent)
+    cashflows.rename(columns={'interval_payback_date': 'date',
+                              'payment_amount_investor': 'payment'},
+                     inplace=True)
+    loan_fundings = loan_fundings[
+        ['fk_loan', 'fk_user', 'originated_since_date', 'amount']]\
+        .merge(investor_loan_ids, on=['fk_loan', 'fk_user_investor'])
     del loan_fundings['fk_user_investor']
-    #loan_fundings['date']=np.array(loan_fundings['date'],'datetime64[D]')
-    loan_fundings.amount=-loan_fundings.amount
-    loan_fundings.rename(columns={'fk_loan':'id_loan', 'fk_user':'fk_user_investor','originated_since_date':'date' ,'amount':'payment'},inplace=True)
-
-    residuals=pp.loc[pp.interval_payback_date<=EOM_date,['fk_loan','fk_user_investor','interval_payback_date','residual_principal_amount_investor']]        .groupby(['fk_loan','fk_user_investor']).agg({                                'interval_payback_date':np.max,                                'residual_principal_amount_investor':np.min}).reset_index()
+    # loan_fundings['date']=np.array(loan_fundings['date'],'datetime64[D]')
+    resid_fields = ['rating_base', 'fk_loan', 'fk_user_investor',
+                    'interval_payback_date',
+                    'residual_principal_amount_investor']
+    residuals = pp.loc[pp.interval_payback_date <= EOM_date, resid_fields]\
+        .groupby(['fk_loan', 'fk_user_investor']).agg(
+            {'interval_payback_date': np.max,
+             'residual_principal_amount_investor': np.min}).reset_index()
 
     # should be same as finding principal at max date!
-    residuals=residuals[residuals.residual_principal_amount_investor.notnull()]
-    residuals['interval_payback_date']=np.array(residuals['interval_payback_date'],'datetime64[D]')
-    residuals.rename(columns={'fk_loan':'id_loan','interval_payback_date':'date' ,                              'residual_principal_amount_investor':'payment'},inplace=True)
+    residuals = residuals[ residuals.residual_principal_amount_investor.notnull()]
+    residuals['interval_payback_date'] = \
+        np.array(residuals['interval_payback_date'], 'datetime64[D]')
+    residuals.rename(columns={'interval_payback_date': 'date',
+                              'residual_principal_amount_investor': 'payment'},
+                     inplace=True)
 
-    cashflows=pd.concat([loan_fundings,cashflows, residuals],ignore_index=True)
-    # warning a mix of datetimes and dates causes problems - datetimes -> 1970-...
-    cashflows['date']=np.array(cashflows['date'],'datetime64[D]')
-
-    cashflows['dcf']=(datetime.date(2015,4,1)  -cashflows['date'])/np.timedelta64(1,'D')/365
-
+    cashflows = pd.concat([loan_fundings, cashflows, residuals],
+                          ignore_index=True)
+    # warning a mix of datetimes and dates causes problems - datetimes -> 1970-
+    cashflows['date'] = np.array(cashflows['date'], 'datetime64[D]')
+    cashflows['dcf'] = calc_dcf(cashflows['date'])
     return cashflows
 
 
-def generate_cashflows(pred_pp, loan_funding, useEOM_shift, EOM_date_str=None, actual=None):
+def generate_cashflows(pred_pp, loan_funding, useEOM_shift, actual=None):
     """ prepare data for IRR calculation.
         take predicted future cashflows together with inital principal
         and any actual payments and return merged cashflows for IRR calculation
-        useEOM_shift: if
-        EOM_date_str: only used to filter loans that were originated before EOM_str
+        useEOM_shift: since shifts
     """
     if useEOM_shift:
-        date_str='originated_since_date_EOM'
+        date_str = 'originated_since_date_EOM'
     else:
-        date_str='originated_since_date'
-
-    if EOM_date_str is not None:
-        EOM_date=datetime.datetime.strptime(EOM_date_str,'%Y-%m-%d').date()
+        date_str = 'originated_since_date'
 
     # take payments and add initial principal
-    cashflows=pred_pp[['fk_loan','fk_user_investor','e_tot']].copy()
-    cashflows['interval_payback_date']=np.array(pred_pp.interval_payback_date,'datetime64[D]')
-    cashflows.rename(columns={'fk_loan':'id_loan','interval_payback_date':'date','e_tot':'payment'},inplace=True)
-    # ids=cashflows.id_loan.unique()
-
-
-    if EOM_date_str is not None:
-        loans_orig=loan_funding.loc[loan_funding.originated_since_date<EOM_date,['fk_loan','fk_user',date_str,'amount']].copy()
-    else:
-        loans_orig=loan_funding[['fk_loan','fk_user',date_str,'amount']].copy()
-    loans_orig.amount=-loans_orig.amount
-    loans_orig.rename(columns={'fk_loan':'id_loan', 'fk_user':'fk_user_investor',date_str:'date' ,'amount':'payment'},inplace=True)
+    cashflows = pred_pp[['fk_loan', 'fk_user_investor', 'e_tot']].copy()
+    cashflows['interval_payback_date'] = \
+        np.array(pred_pp.interval_payback_date, 'datetime64[D]')
+    cashflows.rename(columns={'interval_payback_date': 'date',
+                              'e_tot': 'payment'}, inplace=True)
 
     if actual is not None:
-        act=actual[['fk_loan','fk_user_investor','iso_date','payment_amount_investor_month']].rename(columns={'fk_loan':'id_loan','iso_date':'date','payment_amount_investor_month':'payment'})
+        act_fields = ['fk_loan', 'fk_user_investor', 'iso_date',
+                      'payment_amount_investor_month']
+        act = actual[act_fields].rename(columns=\
+            {'iso_date': 'date', 'payment_amount_investor_month': 'payment'})
 
-        act.date=np.array(act.date,'datetime64[D]')
+        act.date = np.array(act.date, 'datetime64[D]')
     else:
-        act=None
-    cashflows=pd.concat([loans_orig,act,cashflows],ignore_index=True)
-
+        act = None
+    cashflows = pd.concat([loans_orig, act, cashflows], ignore_index=True)
     return cashflows
 
 
-def add_loan_rating(cashflows,loans):
-    return cashflows.merge(loans[['id_loan','originated_since_date',\
-    'rating_base','base_date','base_return','payback_state']],on='id_loan',how='left')
-
-
-# merge in investor field and loan coverage, change borrower payment to investor cashflow ( ie according to their allocation of loan)
-def add_investor_coverage(cashflows,loan_fundings):
-    cashflows1=cashflows.merge(loan_fundings[['fk_loan','fk_user','loan_coverage1']],\
-                               left_on='id_loan',right_on='fk_loan')
-    cashflows1['orig_payment']=cashflows1['payment']
-    cashflows1['payment']=cashflows1['orig_payment']*cashflows1['loan_coverage1']/100.0
-    return cashflows1
+def add_loan_rating(cashflows, loans):
+    return cashflows.merge(loans[
+        ['fk_loan', 'originated_since_date', 'rating_base', 'base_date',
+         'base_return', 'payback_state']], on='fk_loan', how='left')
 
 
 def gen_rating(cashflows, orig_date_str, exc_loans):
-    orig_date=datetime.datetime.strptime(orig_date_str,'%Y-%m-%d').date()
-    return cashflows[(cashflows.payback_state!='payback_complete') & \
-                     (cashflows.originated_since_date<orig_date) &
-                    ~(cashflows.id_loan.isin(exc_loans))
-                    ]\
-        .groupby(['base_date','rating_base']).apply(lambda x: xirr(x.payment,x.dcf))
+    orig_date = isostr_date(orig_date_str)
+    return cashflows[(cashflows.payback_state != 'payback_complete') &
+                     (cashflows.originated_since_date < orig_date) &
+                     ~(cashflows.fk_loan.isin(exc_loans))]\
+        .groupby(['base_date', 'rating_base'])\
+        .apply(lambda x: xirr(x.payment, x.dcf))
 
-def abs_diff(df,pairs):
-    for x,y in pairs:
-        df[x+'_m_'+y]=np.abs(df[x]-df[y])
+def abs_diff(df, pairs):
+    for x, y in pairs:
+        df[x + '_m_' + y] = np.abs(df[x] - df[y])
     return df
-
-
-

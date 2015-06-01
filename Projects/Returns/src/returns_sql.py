@@ -102,7 +102,10 @@ def get_sql_strings(exclude_loans=False):
     pp.nominal_interest_percentage, pp.promo_interest_percentage, pp.has_promo_flag,
     pp.is_repaid_flag, pp.payout_date, pp.interval, pp.interval_payback_date, pp.next_interval_payback_date, pp.loan_coverage,
     pp.payment_amount_borrower, pp.principal_amount_borrower, pp.interest_amount_borrower, pp.initial_principal_amount_borrower, pp.sum_interval_interest_amount_borrower,
-    pp.residual_interest_amount_borrower, pp.residual_principal_amount_borrower, pp.calc_service_fee,
+    pp.residual_interest_amount_borrower,
+    coalesce (pp.residual_principal_amount_borrower, l.principal_amount) 
+         as residual_principal_amount_borrower,
+    pp.calc_service_fee,
 
     pp.payment_amount_investor, pp.payment_amount_investor_cum,
     pp.payment_amount_investor_cum - lag(pp.payment_amount_investor_cum,1,0.0::float) over W payment_amount_investor_month,
@@ -130,6 +133,11 @@ def get_sql_strings(exclude_loans=False):
     join base.loan_funding lf on (
      ap.dwh_country_id=lf.dwh_country_id and
      ap.fk_loan=lf.fk_loan
+
+    )
+    join base.loan l on (
+     ap.dwh_country_id=l.dwh_country_id and
+     ap.fk_loan=l.id_loan
 
     )
 
