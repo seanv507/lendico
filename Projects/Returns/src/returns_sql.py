@@ -1,4 +1,8 @@
 def get_sql_strings(exclude_loans=False):
+    # combined payment plan has null for investor 
+    # initial/residual principals ( for interval 0)
+    # also if no match found for actual payment then
+    # combined payment fields will nbe null in actual_payments...
     if exclude_loans:
         excluded_loans = (3,4,6,8,11,14,526,528,558,630,557,556,555,553,552,554,578,579,580,603,596,611,642)
     else:
@@ -101,7 +105,10 @@ def get_sql_strings(exclude_loans=False):
 
     pp.nominal_interest_percentage, pp.promo_interest_percentage, pp.has_promo_flag,
     pp.is_repaid_flag, pp.payout_date, pp.interval, pp.interval_payback_date, pp.next_interval_payback_date, pp.loan_coverage,
-    pp.payment_amount_borrower, pp.principal_amount_borrower, pp.interest_amount_borrower, pp.initial_principal_amount_borrower, pp.sum_interval_interest_amount_borrower,
+    pp.payment_amount_borrower, pp.principal_amount_borrower, pp.interest_amount_borrower, 
+    coalesce (pp.initial_principal_amount_borrower,l.principal_amount)
+        as initial_principal_amount_borrower,
+    pp.sum_interval_interest_amount_borrower,
     pp.residual_interest_amount_borrower,
     coalesce (pp.residual_principal_amount_borrower, l.principal_amount) 
          as residual_principal_amount_borrower,
@@ -113,13 +120,15 @@ def get_sql_strings(exclude_loans=False):
     pp.interest_amount_investor_cum,
     pp.residual_interest_amount_investor,
     pp.principal_amount_investor_cum,
-    pp.initial_principal_amount_investor,
-    coalesce (pp.residual_principal_amount_investor, lf.amount) as residual_principal_amount_investor
+    coalesce (pp.initial_principal_amount_investor, lf.amount) 
+        as initial_principal_amount_investor,
+    coalesce (pp.residual_principal_amount_investor, lf.amount) 
+        as residual_principal_amount_investor,
 
-    ,expected_amount_month, expected_amount_cum
-    ,actual_amount_month, actual_amount_cum
-    , in_arrears_flag, in_arrears_since
-     ,in_arrears_since_days
+    expected_amount_month, expected_amount_cum,
+    actual_amount_month, actual_amount_cum,
+     in_arrears_flag, in_arrears_since,
+     in_arrears_since_days
 
 
     from actual_payments ap
@@ -237,7 +246,7 @@ def get_sql_strings(exclude_loans=False):
     pp.residual_interest_amount,
      pp.principal_amount_cum,
      pp.initial_principal_amount,
-    coalesce (pp.residual_principal_amount, l.principal_amount) as residual_principal_amount
+    pp.residual_principal_amount
 
     ,expected_amount_month, expected_amount_cum
     ,actual_amount_month, actual_amount_cum
@@ -283,7 +292,8 @@ def get_sql_strings(exclude_loans=False):
         sum(pp.interest_amount_borrower) OVER wind as interest_amount_borrower_cum,
 
         pp.initial_principal_amount_borrower,
-        pp.residual_interest_amount_borrower, pp.residual_principal_amount_borrower,
+        pp.residual_interest_amount_borrower,
+        pp.residual_principal_amount_borrower,
 
         pp.calc_service_fee,
 
@@ -296,8 +306,12 @@ def get_sql_strings(exclude_loans=False):
         pp.interest_amount_investor,
         sum(pp.interest_amount_investor) OVER wind as interest_amount_investor_cum,
 
-        pp.initial_principal_amount_investor, pp.sum_interval_interest_amount_investor,
-        pp.residual_interest_amount_investor, pp.residual_principal_amount_investor
+        coalesce( pp.initial_principal_amount_investor, lf.amount) 
+            as initial_principal_amount_investor,
+        pp.sum_interval_interest_amount_investor,
+        pp.residual_interest_amount_investor, 
+        coalesce( pp.residual_principal_amount_investor, lf.amount) 
+            as residual_principal_amount_investor
 
 
         FROM base.loan_payment_plan_combined_item pp
@@ -344,7 +358,7 @@ def get_sql_strings(exclude_loans=False):
 # load loans removing cancelled, not yet originated  loans and loans created by lendico 'borrowers'
 
 
-    d['loan_fundings_sql']="""select * from base.loan_funding where dwh_country_id=1
+    d['loan_fundings']="""select * from base.loan_funding where dwh_country_id=1
     and fk_loan not in {} and (state='funded' or close_reason is not null)""".format(excluded_loans)
 
     return d

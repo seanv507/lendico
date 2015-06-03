@@ -142,11 +142,13 @@ def isostr_date(date_str):
 def generate_residual_act_investor(actual, loan_fundings,
                                    EOM_date, payment_plans=None):
     """  generate residual principals for IRR calc.
+    We have two main options if in arrears
+        if in 
     if payment plan omitted use all remaining principal
     (ie including in arrears) otherwise use next initial principal
     if default take full outstanding borrower principal
         *(1-1% service fee)  * recovery fraction
-
+    NB need residual/initial principals to be not NULL
     """
     # TODO deal with empty payment plan
     # TODO what if default and paid back! loans 27 & 76
@@ -158,12 +160,14 @@ def generate_residual_act_investor(actual, loan_fundings,
     has_defaulted = (act_EOM.in_arrears_since_days_30360 > 90)
     live_loans = act_EOM.loc[~has_defaulted, 'fk_loan'].unique()
     if payment_plans is None:
+        # take residual principal at reporting date 
         resid_fields = ['rating_base', 'fk_loan', 'fk_user_investor',
                         'residual_principal_amount_investor']
         residual = act_EOM.loc[~has_defaulted, resid_fields]\
             .rename(columns={'residual_principal_amount_investor': 'payment'})
 
     else:
+        # otherwise take first initial principal after reporting date
         resid_fields = ['rating_base', 'fk_loan', 'fk_user_investor',
                         'interval_payback_date',
                         'initial_principal_amount_investor']
@@ -302,11 +306,12 @@ def calc_survival_investor(pp):
     return pp
 
 
-def add_pd(pp, loans, use_in_arrears):
+def add_pd(pp, act_EOM, loans, use_in_arrears):
     """ add pd from loans, divide by 100, and create dupl pd_noarr """
-    pp_pd = pp.merge(
-        loans[['id_loan', 'pd', 'bucket_pd']],
-        left_on='fk_loan', right_on='id_loan')
+    pp_pd = pp.merge(act_EOM[['fk_loan', 'fk_user_investor', 'bucket_pd']],
+                     on=['fk_loan', 'fk_user_investor'], how='left')
+
+    pp_pd = pp_pd.merge(loans[['fk_loan', 'pd']], on='fk_loan')
     pp_pd['pd'] = pp_pd['pd'] / 100.0
     pp_pd['pd_noarr'] = pp_pd['pd']
     if use_in_arrears:
@@ -315,30 +320,35 @@ def add_pd(pp, loans, use_in_arrears):
     return pp_pd
 
 
-def make_future_pd(payment_plans, loans, arrears_dict, use_in_arrears,
-                   EOM_date_str=None, latest_paid_interval=None):
+def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
+                   EOM_date=None, latest_paid_interval=None):
     """ select future payments after EOM_date_str or after last paid_interval
         if last_paid_interval provided then use those too and
         set any dates before EOM to EOM
         if EOM_date_str is None use all data
     """
 
-    if EOM_date_str is not None:
-        EOM_date = isostr_date(EOM_date_str)
+    if EOM_date is not None:
+        
         if latest_paid_interval is None:
             fut = payment_plans[payment_plans.interval_payback_date > EOM_date]
         else:
             fut = payment_plans.merge(pd.DataFrame(latest_paid_interval),
                                       left_on=['fk_loan', 'fk_user_investor'],
                                       right_index=True, how='left')
+            # TODO 
+            # a) no record: select all future payments
+            # b) vorlaufzinsen? - works[ paid vorlauf zinsen->interval 0]
+            
             fut = fut[(fut.latest_paid_interval.isnull()) |
                       (fut.interval > fut.latest_paid_interval)]
             fut.loc[fut.interval_payback_date < EOM_date,
                     'interval_payback_date'] = EOM_date
+            fut['dcf']=calc_dcf(fut['interval_payback_date'])
     else:
         fut = payment_plans.copy()
     # drop intervals already in actual???
-    fut_pd = add_pd(fut, loans, use_in_arrears)
+    fut_pd = add_pd(fut, act_EOM, loans, use_in_arrears)
     fut_pd = calc_survival_investor(fut_pd)
     return fut_pd
 
