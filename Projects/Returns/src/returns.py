@@ -1,10 +1,12 @@
 from __future__ import division
-import pandas as pd
-import pandas.io.sql as psql
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 import datetime
 import scipy.optimize
+
+
+def annualise(x):
+        return np.power(1 + x, 12) - 1
 
 
 def recovery(amounts):
@@ -68,16 +70,30 @@ def calc_dcf(dates):
     return (np.datetime64('2015-04-01', 'D') - dt64) \
         / np.timedelta64(1, 'D') / 365
 
+def calc_quarter(z):
+    # pandas problem? copy turned datetime objects to long
+    return z.map(lambda x: '{}_Q{}'.format(x.year, ((x.month - 1) // 3) + 1))
+    
+
 
 def extend_loans(loans):
     loans.rename(columns={'id_loan': 'fk_loan'}, inplace=True)
+    
     loans['rating_base'] = loans.rating.str[0]
     loans['payout_date'] = \
         np.array(loans.payout_date, 'datetime64[D]')
-    loans['rating_switch']=np.nan
-    loans.loc[loans.payout_date<np.datetime64('2014-07-01','D'), 'rating_switch'] = 1
-    loans.loc[(loans.payout_date>=np.datetime64('2014-07-01','D')) & \
-        (loans.payout_date < np.datetime64('2014-10-15','D')),'rating_switch'  ] = 2
+        
+    loans['payout_quarter'] = calc_quarter(loans['payout_date'])
+    loans.loc[loans['payout_date'] < np.datetime64('2014-01-01','D'),
+              'payout_quarter'] = '2014_Q1'
+    # one loan before
+              
+    loans['rating_switch'] = np.nan
+    loans.loc[loans.payout_date < np.datetime64('2014-07-01','D'), 'rating_switch'] = 1
+    loans.loc[
+        (loans.payout_date >= np.datetime64('2014-07-01','D')) & \
+        (loans.payout_date < np.datetime64('2014-10-15', 'D')), 
+        'rating_switch'] = 2
     loans.loc[loans.payout_date >= np.datetime64('2014-10-15','D'), 'rating_switch'] = 3
     
     loans['payout_date_EOM'] = loans['payout_date'] \

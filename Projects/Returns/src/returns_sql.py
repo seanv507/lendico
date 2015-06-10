@@ -82,6 +82,11 @@ def get_sql_strings(exclude_loans=False):
             pp.residual_interest_amount_investor, pp.residual_principal_amount_investor
             , sum(coalesce(payment_amount_investor,0) ) OVER W::float as payment_amount_investor_cum
             , sum(coalesce(pp.interest_amount_investor,0) ) OVER W::float as interest_amount_investor_cum
+            , sum(coalesce( 
+                            case when interval>0 then pp.interest_amount_investor
+                            end,   0) 
+            
+            ) OVER W::float as interest_amount_investor_cum_exc0
             , sum(coalesce(pp.principal_amount_investor,0) ) OVER W::float as principal_amount_investor_cum
             FROM base.loan_payment_plan_combined_item pp
 
@@ -89,7 +94,10 @@ def get_sql_strings(exclude_loans=False):
      on     l.id_loan=pp.fk_loan and l.dwh_country_id=pp.dwh_country_id
      join  base.loan_funding lf   on
      (pp.dwh_country_id=lf.dwh_country_id and pp.fk_loan=lf.fk_loan and pp.fk_user_investor=lf.fk_user)
-    where pp.dwh_country_id=1 and  pp.interval_payback_date<=current_date and  (lf.state='funded' or lf.close_reason is not null) and l.state!='canceled'
+    where pp.dwh_country_id=1 and  
+        pp.interval_payback_date<=current_date and  
+        (lf.state='funded' ) and --or lf.close_reason is not null) and 
+        l.state!='canceled'
     WINDOW W as (partition by pp.dwh_country_id, pp.fk_loan, pp.fk_user_investor ORDER BY pp.interval_payback_date)
     )
 
@@ -118,6 +126,7 @@ def get_sql_strings(exclude_loans=False):
     pp.payment_amount_investor_cum - lag(pp.payment_amount_investor_cum,1,0.0::float) over W payment_amount_investor_month,
     pp.principal_amount_investor, pp.interest_amount_investor, pp.sum_interval_interest_amount_investor,
     pp.interest_amount_investor_cum,
+    pp.interest_amount_investor_cum_exc0,
     pp.residual_interest_amount_investor,
     pp.principal_amount_investor_cum,
     coalesce (pp.initial_principal_amount_investor, lf.amount) 
@@ -155,7 +164,9 @@ def get_sql_strings(exclude_loans=False):
         pp.fk_user_investor = lf.fk_user and
         pp.fk_loan=ap.fk_loan and
         ap_cum.interval=pp.interval)
-    where  ap.dwh_country_id=1 and ap.iso_date <=current_date and (lf.state='funded' or lf.close_reason is not null)
+    where  ap.dwh_country_id=1 and 
+        ap.iso_date <=current_date and 
+        (lf.state='funded' ) --or lf.close_reason is not null)
     WINDOW W as( partition by ap.dwh_country_id, ap.fk_loan, pp.fk_user_investor  order by ap.iso_date)
     order by dwh_country_id,fk_loan,iso_date
     ;""".format(excluded_loans)
@@ -218,6 +229,10 @@ def get_sql_strings(exclude_loans=False):
         residual_interest_amount,residual_principal_amount
         , sum(coalesce(payment_amount,0) )  OVER W::float as payment_amount_cum
         , sum(coalesce(pp.interest_amount,0) ) OVER W::float as interest_amount_cum
+        , sum(coalesce(
+            case when interval>0 then
+                pp.interest_amount
+            end,0) ) OVER W::float as interest_amount_cum_exc0
         , sum(coalesce(pp.principal_amount,0) ) OVER W::float as principal_amount_cum
 
      FROM base.loan_payment_plan_item pp
@@ -243,6 +258,7 @@ def get_sql_strings(exclude_loans=False):
 
     pp.principal_amount, pp.interest_amount, pp.sum_interval_interest_amount,
     pp.interest_amount_cum,
+    pp.interest_amount_cum_exc0,
     pp.residual_interest_amount,
      pp.principal_amount_cum,
      pp.initial_principal_amount,
@@ -321,7 +337,7 @@ def get_sql_strings(exclude_loans=False):
         l.state!='canceled'
         and l.id_loan not in {} and
         l.originated_since is not null and
-        (lf.state='funded' or lf.close_reason is not null)
+        (lf.state='funded' ) --or lf.close_reason is not null)
         WINDOW wind as (PARTITION BY pp.dwh_country_id, pp.fk_loan, pp.fk_user_investor order by interval)
         """.format(excluded_loans)
 
@@ -359,6 +375,6 @@ def get_sql_strings(exclude_loans=False):
 
 
     d['loan_fundings']="""select * from base.loan_funding where dwh_country_id=1
-    and fk_loan not in {} and (state='funded' or close_reason is not null)""".format(excluded_loans)
+    and fk_loan not in {} and (state='funded') -- or close_reason is not null)""".format(excluded_loans)
 
     return d
