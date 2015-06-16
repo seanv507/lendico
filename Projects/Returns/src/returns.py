@@ -4,7 +4,8 @@ import pandas as pd
 import datetime
 import scipy.optimize
 
-
+#todo actual date
+# 
 def annualise(x):
         return np.power(1 + x, 12) - 1
 
