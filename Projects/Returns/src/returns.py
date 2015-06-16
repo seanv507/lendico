@@ -3,9 +3,41 @@ import numpy as np
 import pandas as pd
 import datetime
 import scipy.optimize
+import os
 
-#todo actual date
-# 
+# todo actual date
+#
+def get_src_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+def get_sql_strings():
+    # combined payment plan has null for investor
+    # initial/residual principals ( for interval 0)
+    # also if no match found for actual payment then
+    # combined payment fields will nbe null in actual_payments...
+    # excluded_loans =
+    # (3,4,6,8,11,14,526,528,558,630,557,556,555,
+    #  553,552,554,578,579,580,603,596,611,642)
+    src_dir = get_src_dir()
+    sql_dict = dict()
+    
+    sqls = [
+            'actual_payments_combined_date',
+            'actual_payments_combined1',
+            'actual_payments_combined',
+            'actual_payments',
+            'payment_plans_combined',
+            'payment_plans',
+            'loan_fundings',
+            'loans']
+    for sql_name in sqls:
+        with open(src_dir + '\\' + sql_name + '.sql') as sqf:
+            sql = sqf.read()
+            sql_dict[sql_name] = sql
+
+    return sql_dict
+
+
 def annualise(x):
         return np.power(1 + x, 12) - 1
 
@@ -71,32 +103,34 @@ def calc_dcf(dates):
     return (np.datetime64('2015-04-01', 'D') - dt64) \
         / np.timedelta64(1, 'D') / 365
 
+
 def calc_quarter(z):
     # pandas problem? copy turned datetime objects to long
     return z.map(lambda x: '{}_Q{}'.format(x.year, ((x.month - 1) // 3) + 1))
-    
 
 
 def extend_loans(loans):
     loans.rename(columns={'id_loan': 'fk_loan'}, inplace=True)
-    
+
     loans['rating_base'] = loans.rating.str[0]
     loans['payout_date'] = \
         np.array(loans.payout_date, 'datetime64[D]')
-        
+    
     loans['payout_quarter'] = calc_quarter(loans['payout_date'])
-    loans.loc[loans['payout_date'] < np.datetime64('2014-01-01','D'),
+    loans.loc[loans['payout_date'] < np.datetime64('2014-01-01', 'D'),
               'payout_quarter'] = '2014_Q1'
     # one loan before
-              
+
     loans['rating_switch'] = np.nan
-    loans.loc[loans.payout_date < np.datetime64('2014-07-01','D'), 'rating_switch'] = 1
+    loans.loc[loans.payout_date < np.datetime64('2014-07-01', 'D'),
+              'rating_switch'] = 1
     loans.loc[
-        (loans.payout_date >= np.datetime64('2014-07-01','D')) & \
-        (loans.payout_date < np.datetime64('2014-10-15', 'D')), 
+        (loans.payout_date >= np.datetime64('2014-07-01', 'D')) &
+        (loans.payout_date < np.datetime64('2014-10-15', 'D')),
         'rating_switch'] = 2
-    loans.loc[loans.payout_date >= np.datetime64('2014-10-15','D'), 'rating_switch'] = 3
-    
+    loans.loc[loans.payout_date >= np.datetime64('2014-10-15', 'D'),
+              'rating_switch'] = 3
+
     loans['payout_date_EOM'] = loans['payout_date'] \
         + np.array(30 - loans.payback_day, 'timedelta64[D]')
     loans['dcf'] = calc_dcf(loans["payout_date_EOM"])
@@ -126,7 +160,8 @@ def extend_loan_fundings(loan_fundings, loans):
 def extend_actual_payments(actual_payments, loans, arrears_dict):
     actual_payments['dcf'] = calc_dcf(actual_payments.iso_date)
 
-    actual_payments.drop(['payout_date'], axis=1, inplace=True, errors='ignore')    
+    actual_payments.drop(['payout_date'], axis=1,
+                         inplace=True, errors='ignore')
     actual_payments = \
         actual_payments.merge(loans[['fk_loan', 'payout_date']],
                               on='fk_loan',
@@ -135,7 +170,7 @@ def extend_actual_payments(actual_payments, loans, arrears_dict):
     actual_payments['in_arrears_since_days_30360'] = \
         days360(actual_payments.in_arrears_since.values,
                 actual_payments.iso_date.values)
-                
+
     actual_payments['bucket'] = \
         np.ceil(actual_payments.in_arrears_since_days_30360/30)*30
     actual_payments['bucket_pd'] = actual_payments.bucket.map(arrears_dict)
@@ -145,7 +180,6 @@ def extend_actual_payments(actual_payments, loans, arrears_dict):
 
 
 def extend_payment_plans(payment_plans, loans):
-        
     payment_plans['dcf'] = calc_dcf(payment_plans.interval_payback_date)
     if 'initial_principal_amount_borrower' in payment_plans.columns:
         principal_str = 'initial_principal_amount_borrower'
