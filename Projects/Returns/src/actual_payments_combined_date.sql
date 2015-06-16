@@ -114,7 +114,7 @@ paymentplan as (
 	where 
 		--pp.dwh_country_id=1 and  
 		pp.interval_payback_date<=current_date and  
-		(lf.state='funded' ) and --or lf.close_reason is not null) and 
+		(lf.state='funded' or lf.close_reason is not null) and 
 		l.state!='canceled'
 	WINDOW W as (partition by pp.dwh_country_id, pp.fk_loan, pp.fk_user_investor ORDER BY pp.interval_payback_date)
 )
@@ -182,7 +182,7 @@ left join paymentplan pp on
 where  
 	--ap.dwh_country_id=1 and 
 	ap.iso_date <=current_date and 
-	(lf.state='funded' ) --or lf.close_reason is not null)
+	(lf.state='funded' or lf.close_reason is not null)
 WINDOW W as( partition by ap.dwh_country_id, ap.fk_loan, pp.fk_user_investor  order by ap.iso_date)
 order by dwh_country_id,fk_loan,iso_date
 

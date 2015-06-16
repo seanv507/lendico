@@ -120,7 +120,7 @@ with
         where 
             --pp.dwh_country_id=1 and  
             pp.interval_payback_date<=current_date and  
-            (lf.state='funded' ) and --or lf.close_reason is not null) and 
+            (lf.state='funded' or lf.close_reason is not null) and 
             l.state!='canceled'
         WINDOW W as (partition by pp.dwh_country_id, pp.fk_loan, pp.fk_user_investor ORDER BY pp.interval_payback_date)
     )

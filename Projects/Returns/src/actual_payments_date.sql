@@ -89,8 +89,8 @@ paymentplan as (
 
     FROM base.loan_payment_plan_item pp
     join   base.loan l on     
-		l.dwh_country_id=pp.dwh_country_id
-		l.id_loan=pp.fk_loan and 
+		l.dwh_country_id=pp.dwh_country_id and
+		l.id_loan=pp.fk_loan
     where  
          --pp.dwh_country_id=1 and 
 		pp.interval_payback_date<=current_date
