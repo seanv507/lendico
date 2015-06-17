@@ -47,8 +47,7 @@ SELECT
 		pp.fk_loan=lf.fk_loan and 
 		pp.fk_user_investor=lf.fk_user
 	where 
-	--pp.dwh_country_id=1 and
 		l.state!='canceled' and 
 		l.originated_since is not null and
-		(lf.state='funded' ) --or lf.close_reason is not null)
+		(lf.state='funded' or lf.close_reason is not null)
 	WINDOW wind as (PARTITION BY pp.dwh_country_id, pp.fk_loan, pp.fk_user_investor order by interval)

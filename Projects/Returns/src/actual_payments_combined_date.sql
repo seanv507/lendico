@@ -16,7 +16,7 @@ actual_payments as (
 			expected_amount_change,
 		ap.actual_amount_cum - lag(actual_amount_cum,1,0.0) over W_pay
 			actual_amount_change
-	from base.de_payments ap
+	from base.payments ap
 	join base.loan_payback lp on 
 		lp.dwh_country_id=ap.dwh_country_id and 
 		lp.fk_loan=ap.fk_loan

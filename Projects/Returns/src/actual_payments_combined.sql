@@ -9,7 +9,7 @@ with
         expected_amount_month
     ,dp.actual_amount_cum - lag(actual_amount_cum,1,0.0) over W_pay
         actual_amount_month
-    from base.de_payments dp
+    from base.payments dp
     join base.loan_payback lp on 
     (lp.dwh_country_id=dp.dwh_country_id and lp.fk_loan=dp.fk_loan)
     where dp.iso_date=
