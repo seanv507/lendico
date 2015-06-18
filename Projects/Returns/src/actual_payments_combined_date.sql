@@ -11,9 +11,7 @@ actual_payments as (
 		in_arrears_flag, 
 		ap.in_arrears_since,
 		in_arrears_since_days,
-		-- expected/actual payment over month (by taking diff of cumsum)
-		ap.expected_amount_cum - lag(expected_amount_cum,1,0.0) over W_pay
-			expected_amount_change,
+		-- actual payment over month (by taking diff of cumsum)
 		ap.actual_amount_cum - lag(actual_amount_cum,1,0.0) over W_pay
 			actual_amount_change
 	from base.payments ap
@@ -25,6 +23,11 @@ actual_payments as (
 		 ap.iso_date <=lp.last_payment_date)
 	WINDOW W_pay as ( partition by ap.dwh_country_id, ap.fk_loan order by ap.iso_date)
 ),
+
+actual_payments_diff as (
+	select * from actual_payments where actual_amount_change<>0
+),
+
 
 -- ( apart from those that were paid back by lendico)
 -- find corresponding payment plan item.
@@ -39,8 +42,8 @@ actual_payments_cum as (
 		ap.fk_loan, 
 		ap.iso_date,
 		max(pp.interval) as interval 
-	from actual_payments ap
-	left join (
+	from actual_payments_diff ap
+	join (
 		select 
 			dwh_country_id, 
 			fk_loan, 
@@ -57,7 +60,6 @@ actual_payments_cum as (
 		 -- we need this to exclude extra payments that have not been added to payment plan
 		ap.iso_date>=pp.interval_payback_date and
 		ap.actual_amount_cum>=pp.eur_payment_amount_cum
-	where actual_amount_change<>0     
 	group by ap.dwh_country_id, ap.fk_loan,  ap.iso_date
 
 ),
@@ -141,7 +143,8 @@ select
 	pp.calc_service_fee,
 
 	pp.eur_payment_amount_investor, 
-	pp.eur_payment_amount_investor_cum,        
+	pp.eur_payment_amount_investor_cum,
+	pp.eur_payment_amount_investor_cum - lag(pp.eur_payment_amount_investor_cum,1,0.0::float) over W eur_payment_amount_investor_change,	
 	pp.eur_principal_amount_investor, 
 	pp.eur_interest_amount_investor, 
 	pp.eur_sum_interval_interest_amount_investor,
@@ -159,8 +162,8 @@ select
 	in_arrears_since,
 	in_arrears_since_days
 
-from actual_payments ap
-join actual_payments_cum ap_cum on
+from actual_payments_diff ap
+left join actual_payments_cum ap_cum on
 	ap.dwh_country_id=ap_cum.dwh_country_id and
 	ap.fk_loan=ap_cum.fk_loan and
 	ap.iso_date=ap_cum.iso_date

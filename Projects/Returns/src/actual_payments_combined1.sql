@@ -46,7 +46,7 @@ with
                 dwh_country_id, 
                 fk_loan, interval, 
                 interval_payback_date, 
-                sum(payment_amount) OVER W_plan payment_amount_cum
+                sum(eur_payment_amount) OVER W_plan eur_payment_amount_cum
             from base.loan_payment_plan_item  
             where interval_payback_date<=current_date
             WINDOW W_plan as (partition by dwh_country_id,fk_loan order by interval)                
@@ -56,7 +56,7 @@ with
              ap.fk_loan=pp.fk_loan and 
              -- we need this to exclude extra payments that have not been added to payment plan
              ap.iso_date>=pp.interval_payback_date and
-             ap.actual_amount_cum>=pp.payment_amount_cum )
+             ap.actual_amount_cum>=pp.eur_payment_amount_cum )
         group by ap.dwh_country_id, ap.fk_loan,  ap.iso_date
     
     ),
@@ -71,46 +71,38 @@ with
             pp.fk_user_investor, 
             pp.fk_user_borrower, 
             pp.country_name, 
-            pp.nominal_interest_percentage, pp.promo_interest_percentage, pp.has_promo_flag,
-            pp.is_repaid_flag, 
             pp.payout_date,
             pp.interval, 
             pp.interval_payback_date, 
             pp.next_interval_payback_date, 
             pp.loan_coverage,
-            pp.payment_amount_borrower, 
-            pp.principal_amount_borrower, 
-            pp.interest_amount_borrower,
-            pp.initial_principal_amount_borrower, 
-            pp.sum_interval_interest_amount_borrower,
-            pp.residual_interest_amount_borrower, 
-            pp.residual_principal_amount_borrower, 
-            pp.payment_amount_promo, 
-            pp.principal_amount_promo, 
-            pp.interest_amount_promo, 
-            pp.initial_principal_amount_promo, 
-            pp.sum_interval_interest_amount_promo, 
-            pp.residual_interest_amount_promo, 
-            pp.residual_principal_amount_promo, 
+            pp.eur_payment_amount_borrower, 
+            pp.eur_principal_amount_borrower, 
+            pp.eur_interest_amount_borrower,
+            pp.eur_initial_principal_amount_borrower, 
+            pp.eur_sum_interval_interest_amount_borrower,
+            pp.eur_residual_interest_amount_borrower, 
+            pp.eur_residual_principal_amount_borrower, 
+            
             pp.calc_service_fee,
-            pp.payment_amount_investor,
+            pp.eur_payment_amount_investor,
 
-            pp.principal_amount_investor, 
-            pp.interest_amount_investor,
-            pp.initial_principal_amount_investor, 
-            pp.sum_interval_interest_amount_investor,
-            pp.residual_interest_amount_investor, 
-            pp.residual_principal_amount_investor,
-            sum(coalesce(payment_amount_investor,0) ) OVER W::float as payment_amount_investor_cum,
-            sum(coalesce(pp.interest_amount_investor,0) ) OVER W::float as interest_amount_investor_cum,
+            pp.eur_principal_amount_investor, 
+            pp.eur_interest_amount_investor,
+            pp.eur_initial_principal_amount_investor, 
+            pp.eur_sum_interval_interest_amount_investor,
+            pp.eur_residual_interest_amount_investor, 
+            pp.eur_residual_principal_amount_investor,
+            sum(coalesce(eur_payment_amount_investor,0) ) OVER W::float as eur_payment_amount_investor_cum,
+            sum(coalesce(pp.eur_interest_amount_investor,0) ) OVER W::float as eur_interest_amount_investor_cum,
             sum(coalesce( 
                          case 
-                             when interval>0 then pp.interest_amount_investor
+                             when interval>0 then pp.eur_interest_amount_investor
                              end,
                          0) 
             
-            ) OVER W::float as interest_amount_investor_cum_exc0,
-            sum(coalesce(pp.principal_amount_investor,0) ) OVER W::float as principal_amount_investor_cum
+            ) OVER W::float as eur_interest_amount_investor_cum_exc0,
+            sum(coalesce(pp.eur_principal_amount_investor,0) ) OVER W::float as eur_principal_amount_investor_cum
         FROM base.loan_payment_plan_combined_item pp
 
         join   base.loan l on 
@@ -133,40 +125,31 @@ select
 	ap.fk_loan as fk_loan,
 	ap.loan_request_nr,
 	ap.iso_date,
-
-
-	pp.nominal_interest_percentage, 
-	pp.promo_interest_percentage, 
-	pp.has_promo_flag,
-	pp.is_repaid_flag, 
-	pp.payout_date, 
 	pp.interval, 
 	pp.interval_payback_date, 
 	pp.next_interval_payback_date, 
 	pp.loan_coverage,
-	pp.payment_amount_borrower, 
-	pp.principal_amount_borrower, 
-	pp.interest_amount_borrower, 
-	coalesce (pp.initial_principal_amount_borrower,l.principal_amount)
-		as initial_principal_amount_borrower,
-	pp.sum_interval_interest_amount_borrower,
-	pp.residual_interest_amount_borrower,
-	coalesce (pp.residual_principal_amount_borrower, l.principal_amount) 
-		as residual_principal_amount_borrower,
+	pp.eur_payment_amount_borrower, 
+	pp.eur_principal_amount_borrower, 
+	pp.eur_interest_amount_borrower, 
+	pp.eur_initial_principal_amount_borrower,
+	pp.eur_sum_interval_interest_amount_borrower,
+	pp.eur_residual_interest_amount_borrower,
+	pp.eur_residual_principal_amount_borrower, 
 	pp.calc_service_fee,
 
-	pp.payment_amount_investor, 
-	pp.payment_amount_investor_cum,
-	pp.payment_amount_investor_cum - lag(pp.payment_amount_investor_cum,1,0.0::float) over W payment_amount_investor_month,
-	pp.principal_amount_investor, pp.interest_amount_investor, pp.sum_interval_interest_amount_investor,
-	pp.interest_amount_investor_cum,
-	pp.interest_amount_investor_cum_exc0,
-	pp.residual_interest_amount_investor,
-	pp.principal_amount_investor_cum,
-	coalesce (pp.initial_principal_amount_investor, lf.amount) 
-		as initial_principal_amount_investor,
-	coalesce (pp.residual_principal_amount_investor, lf.amount) 
-		as residual_principal_amount_investor,
+	pp.eur_payment_amount_investor, 
+	pp.eur_payment_amount_investor_cum,
+	pp.eur_payment_amount_investor_cum - lag(pp.eur_payment_amount_investor_cum,1,0.0::float) over W eur_payment_amount_investor_month,
+	pp.eur_principal_amount_investor, 
+	pp.eur_interest_amount_investor, 
+	pp.eur_sum_interval_interest_amount_investor,
+	pp.eur_interest_amount_investor_cum,
+	pp.eur_interest_amount_investor_cum_exc0,
+	pp.eur_residual_interest_amount_investor,
+	pp.eur_principal_amount_investor_cum,
+	pp.eur_initial_principal_amount_investor,
+	pp.eur_residual_principal_amount_investor,
 
 	expected_amount_month, 
 	expected_amount_cum,
