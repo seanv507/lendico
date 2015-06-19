@@ -176,7 +176,7 @@ def extend_loans(loans):
         + np.array(30 - loans.payback_day, 'timedelta64[D]')
     loans['dcf'] = calc_dcf(loans["payout_date"])
     loans['dcf_EOM'] = calc_dcf(loans["payout_date_EOM"])
-    print 'using shifted payout date'
+
     return loans
 
 
@@ -245,7 +245,7 @@ def extend_payment_plans(payment_plans, loan_fundings=None):
             raise ValueError('need to pass loan fundings for combined payment_plans')
         principal_str = 'eur_initial_principal_amount_borrower'
         merge_keys = ['dwh_country_id', 'fk_loan', 'fk_user_investor']
-        merge_fields = ['investment_fee_def']
+        merge_fields = ['investment_fee_def', 'loan_coverage1']
         payment_plans = drop_merge( payment_plans, loan_fundings,
                                merge_keys, merge_fields, 'left')
     else:
@@ -278,7 +278,7 @@ def generate_residual_act_investor_date(actual, payment_plans, act_EOM,
     # TODO deal with empty payment plan
     # TODO what if default and paid back! loans 27 & 76
     # TODO put residual at last actual payment date? if using outstanding principal
-    EOM_date=act_EOM.iso_date[0]
+    EOM_date=act_EOM.iso_date.iloc[0]
     fund_keys = ['dwh_country_id', 'fk_loan', 'fk_user_investor']
     act_fields = ['iso_date', 'dwh_country_id', 'fk_loan', 'fk_user_investor',
                   'in_arrears_since_days_30360',
@@ -329,7 +329,7 @@ def generate_residual_act_investor_date(actual, payment_plans, act_EOM,
                        .rename(columns={
                        'iso_date':'date',
                        'eur_residual_principal_amount_investor': 'payment'})
-    residual_current['dcf'] = calc_dcf(residual['date'])
+    residual_current['dcf'] = calc_dcf(residual_current['date'])
     # how to treat in arrears? almost defaulted/almost current?
     if (in_arrears.sum() > 0):
         arrears_payment = act_EOM[in_arrears].copy()
@@ -355,7 +355,14 @@ def generate_residual_act_investor_date(actual, payment_plans, act_EOM,
 
         recovery_payment['recovery'] = \
             recovery(recovery_payment['eur_residual_principal_amount_borrower'])
-
+        recovery_payment = \
+            recovery_payment.merge(
+                loan_fundings[
+                    ['dwh_country_id', 'fk_loan', 'fk_user_investor', 
+                    'loan_coverage1', 'investment_fee_def']],
+                on=['dwh_country_id', 'fk_loan', 'fk_user_investor'],
+                how='left')
+                
         recovery_payment['payment'] = \
             (1-recovery_payment.investment_fee_def/100.0) * \
             recovery_payment['recovery'] * \
@@ -391,7 +398,9 @@ def generate_residual_act_investor(actual, loan_fundings,
                   'eur_residual_principal_amount_investor']
     act_EOM = actual.loc[(actual.iso_date == EOM_date), act_fields]
     has_defaulted = (act_EOM.in_arrears_since_days_30360 > 90)
-    live_loans = act_EOM.loc[~has_defaulted, 'dwh_country_id', 'fk_loan'].unique()
+    live_loans = act_EOM.loc[~has_defaulted,
+                             ['dwh_country_id', 'fk_loan']].drop_duplicates()
+    
     if payment_plans is None:
         # take residual principal at reporting date
         resid_fields = ['dwh_country_id', 'fk_loan', 'fk_user_investor',
@@ -405,8 +414,9 @@ def generate_residual_act_investor(actual, loan_fundings,
                         'interval_payback_date',
                         'eur_initial_principal_amount_investor']
         residual = payment_plans.loc[
-            (payment_plans.interval_payback_date > EOM_date) &
-            (payment_plans.fk_loan.isin(live_loans)), resid_fields]\
+            (payment_plans.interval_payback_date > EOM_date)
+            , resid_fields]\
+            .merge(live_loans, on=['dwh_country_id', 'fk_loan'], how='inner')\
             .sort('interval_payback_date', inplace=False)\
             .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor'])\
             .first().reset_index().rename(columns={
@@ -424,7 +434,8 @@ def generate_residual_act_investor(actual, loan_fundings,
         recovery_payment = \
             recovery_payment.merge(
                 loan_fundings[
-                    ['dwh_country_id', 'fk_loan', 'fk_user_investor', 'loan_coverage1']],
+                    ['dwh_country_id', 'fk_loan', 'fk_user_investor', 
+                    'loan_coverage1', 'investment_fee_def']],
                 on=['dwh_country_id', 'fk_loan', 'fk_user_investor'], how='left')
         recovery_payment['payment'] = \
             (1 - recovery_payment.investment_fee_def/100.0) * \
@@ -535,88 +546,6 @@ def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
     return fut_pd
 
 
-def generate_cashflows_pp(pp, loan_fundings, loans, EOM_date_str=None):
-    print " needs to be adjustede but doesnt make sense for time history"
-    if EOM_date_str is None:
-        EOM_date_str = '2300-01-01'
-    EOM_date = datetime.datetime.strptime(EOM_date_str, '%Y-%m-%d').date()
-    # generate cashflows from plan for xirr
-    # ( by taking payment amount, loan funding and residual principal
-    # exclude loans for which no plan yet or interval zero where
-    pp_fields = ['dwh_country_id', 'fk_loan', 'fk_user_investor',
-                 'interval_payback_date', 'eur_payment_amount_investor']
-    cashflows = pp.loc[pp.interval_payback_date <= EOM_date, pp_fields].copy()
-
-    cashflows = cashflows[cashflows.eur_payment_amount_investor.notnull()]
-    cashflows['interval_payback_date'] = \
-        np.array(cashflows['interval_payback_date'], 'datetime64[D]')
-    investor_loan_ids = cashflows[['dwh_country_id', 'fk_loan', 'fk_user_investor']]\
-        .drop_duplicates()
-
-    # filter out cases with no plan yet
-    # ( depends on investor because first payment could be <1 cent)
-    cashflows.rename(columns={'interval_payback_date': 'date',
-                              'eur_payment_amount_investor': 'payment'},
-                     inplace=True)
-    loan_fundings = loan_fundings[
-        ['dwh_country_id', 'fk_loan', 'fk_user', 'payout_date', 'amount']]\
-        .merge(investor_loan_ids, on=['dwh_country_id', 'fk_loan', 'fk_user_investor'])
-    del loan_fundings['fk_user_investor']
-    # loan_fundings['date']=np.array(loan_fundings['date'],'datetime64[D]')
-    resid_fields = ['dwh_country_id', 'fk_loan', 'fk_user_investor',
-                    'interval_payback_date',
-                    'eur_residual_principal_amount_investor']
-    residuals = pp.loc[pp.interval_payback_date <= EOM_date, resid_fields]\
-        .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor']).agg(
-            {'interval_payback_date': np.max,
-             'eur_residual_principal_amount_investor': np.min}).reset_index()
-
-    # should be same as finding principal at max date!
-    residuals = residuals[ residuals.eur_residual_principal_amount_investor.notnull()]
-    residuals['interval_payback_date'] = \
-        np.array(residuals['interval_payback_date'], 'datetime64[D]')
-    residuals.rename(columns={'interval_payback_date': 'date',
-                              'eur_residual_principal_amount_investor': 'payment'},
-                     inplace=True)
-
-    cashflows = pd.concat([loan_fundings, cashflows, residuals],
-                          ignore_index=True)
-    # warning a mix of datetimes and dates causes problems - datetimes -> 1970-
-    cashflows['date'] = np.array(cashflows['date'], 'datetime64[D]')
-    cashflows['dcf'] = calc_dcf(cashflows['date'])
-    return cashflows
-
-
-def generate_cashflows(pred_pp, loan_funding, useEOM_shift, actual=None):
-    """ prepare data for IRR calculation.
-        take predicted future cashflows together with inital principal
-        and any actual payments and return merged cashflows for IRR calculation
-        useEOM_shift: since shifts
-    """
-    if useEOM_shift:
-        date_str = 'payout_date_EOM'
-    else:
-        date_str = 'payout_date'
-
-    # take payments and add initial principal
-    cashflows = pred_pp[['dwh_country_id', 'fk_loan', 'fk_user_investor', 'e_tot']].copy()
-    cashflows['interval_payback_date'] = \
-        np.array(pred_pp.interval_payback_date, 'datetime64[D]')
-    cashflows.rename(columns={'interval_payback_date': 'date',
-                              'e_tot': 'payment'}, inplace=True)
-
-    if actual is not None:
-        act_fields = ['dwh_country_id', 'fk_loan', 'fk_user_investor', 'iso_date',
-                      'eur_payment_amount_investor_month']
-        act = actual[act_fields].rename(columns=\
-            {'iso_date': 'date', 'payment_amount_investor_month': 'payment'})
-
-        act.date = np.array(act.date, 'datetime64[D]')
-    else:
-        act = None
-    cashflows = pd.concat([loans_orig, act, cashflows], ignore_index=True)
-    return cashflows
-
 
 def calc_NAR( act_pay_monthly, plan_repaid,
              act_filter, act_EOM_filter,
@@ -693,8 +622,9 @@ def calc_NAR( act_pay_monthly, plan_repaid,
                     (['recovery_principal',
                       'lost_principal',
                       'eur_interest_amount_investor'], in_arrears)}
-    gps_nar = {k: pd.DataFrame(cols_df[1].groupby('dwh_country_id',  'fk_loan')[cols_df[0]].sum())
-               for k, cols_df in nar_dict.iteritems()
+    gps_nar = {k: pd.DataFrame(cols_df[1].\
+        groupby(['dwh_country_id',  'fk_loan'])\
+            [ cols_df[0]].sum()) for k, cols_df in nar_dict.iteritems()
                if cols_df[1] is not None}
     # add in dataframe name to disambiguate
 
@@ -702,55 +632,50 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     arrears_fields = ['in_arrears_since', 'in_arrears_since_days',
                       'in_arrears_since_days_30360',
                       'bucket', 'bucket_pd']
-    nar1 = nar_df.merge(actual_payments_monthly.
+    nar = nar_df.merge(actual_payments_monthly.
                         loc[actual_payments_monthly.iso_date ==
                             EOM_date.date(),
                             ['dwh_country_id', 'fk_loan'] + arrears_fields],
                         left_index= True,
                         right_on= ['dwh_country_id', 'fk_loan'])
-    nar2 = nar1.merge(loans[['dwh_country_id', 'fk_loan',
-                             'payout_quarter',
-                             'payback_state',
-                             'principal_amount']],
-                             on=['dwh_country_id', 'fk_loan'])
 
-    nar2['interest'] = nar2[[('interest_payments',
+    nar['interest'] = nar[[('interest_payments',
                               'eur_interest_amount_investor_cum'),
                               ('payments_repaid',
                                'eur_interest_amount_investor')]].sum(axis=1)
-    nar2['interest'] -= nar2[('interest_payments_int0',
+    nar['interest'] -= nar[('interest_payments_int0',
                               'eur_interest_amount_investor')].fillna(0)
 
-    nar2['default_loss'] = (nar2['bucket'] >= 120) * \
-                           nar2[('in_arrears', 'lost_principal')]
-    nar2['note_status_adjustment'] = (nar2['bucket'] < 120) * \
-                                     nar2['bucket_pd'] * \
-                                     nar2[('in_arrears', 'lost_principal')]
+    nar['default_loss'] = (nar['bucket'] >= 120) * \
+                           nar[('in_arrears', 'lost_principal')]
+    nar['note_status_adjustment'] = (nar['bucket'] < 120) * \
+                                     nar['bucket_pd'] * \
+                                     nar[('in_arrears', 'lost_principal')]
 
-    nar2['bucket0_lost'] = (nar2['bucket'] == 0) * \
-                           nar2[('in_arrears', 'lost_principal')]
-    nar2['bucket30_lost'] = (nar2['bucket'] == 30) *\
-                            nar2[('in_arrears', 'lost_principal')]
-    nar2['bucket60_lost'] = (nar2['bucket'] == 60) *\
-                            nar2[('in_arrears', 'lost_principal')]
-    nar2['bucket90_lost'] = (nar2['bucket'] == 90) *\
-                            nar2[('in_arrears','lost_principal')]
+    nar['bucket0_lost'] = (nar['bucket'] == 0) * \
+                           nar[('in_arrears', 'lost_principal')]
+    nar['bucket30_lost'] = (nar['bucket'] == 30) *\
+                            nar[('in_arrears', 'lost_principal')]
+    nar['bucket60_lost'] = (nar['bucket'] == 60) *\
+                            nar[('in_arrears', 'lost_principal')]
+    nar['bucket90_lost'] = (nar['bucket'] == 90) *\
+                            nar[('in_arrears','lost_principal')]
     # sum ignores nans
-    nar2['monthly_principals'] = \
-        nar2[[('initial_principal','eur_initial_principal_amount_investor'),
+    nar['monthly_principals'] = \
+        nar[[('initial_principal','eur_initial_principal_amount_investor'),
               ('payments_repaid', 'eur_initial_principal_amount_investor')]].\
               sum(axis=1)
-    nar2['monthly_principals'] = nar2['monthly_principals'] - \
-        nar2[[('initial_principal_int0',
+    nar['monthly_principals'] = nar['monthly_principals'] - \
+        nar[[('initial_principal_int0',
                'eur_initial_principal_amount_investor')]].\
         fillna(0).values.squeeze()
-    nar2['top'] = nar2[['interest', 'default_loss']].sum(axis=1)
-    nar2['nar'] = annualise(nar2['top']/nar2['monthly_principals'])
-    nar2['adj nar'] = annualise(nar2['top', 'note_status_adjustment'].
+    nar['top'] = nar[['interest', 'default_loss']].sum(axis=1)
+    nar['nar'] = annualise(nar['top']/nar['monthly_principals'])
+    nar['adj nar'] = annualise(nar[['top', 'note_status_adjustment']].
                                 sum(axis=1) /
-                                nar2['monthly_principals'])
-    nar2.set_index(['dwh_country_id', 'fk_loan'], inplace=True)
-    return nar2
+                                nar['monthly_principals'])
+    nar.set_index(['dwh_country_id', 'fk_loan'], inplace=True)
+    return nar
 
 
 def calc_IRR(loans, loan_fundings,
@@ -780,14 +705,12 @@ def calc_IRR(loans, loan_fundings,
 
     # loan payments may have payments for loans that have been filterd out
     loan_payments_monthly=act_pay_monthly.loc[act_pay_monthly_filter,
-                    cash_keys + [ 'dcf', 'payment_amount_investor_month']]\
+                    cash_keys + [ 'dcf', 'eur_payment_amount_investor_month']]\
                 .rename(columns={'eur_payment_amount_investor_month': 'payment'})
 
     loan_payments_date=act_pay_date.loc[act_pay_date_filter,
-                    cash_keys + [ 'dcf', 'payment_amount_investor']]\
+                    cash_keys + [ 'dcf', 'eur_payment_amount_investor']]\
                 .rename(columns={'eur_payment_amount_investor_change': 'payment'})
-
-
 
     # what to do if no matching interval ( borrower never paid?)
     residuals_monthly, recoveries_monthly = generate_residual_act_investor(
@@ -796,7 +719,8 @@ def calc_IRR(loans, loan_fundings,
                                 EOM_date.date(),
                                 payment_plans=plan_pay[plan_filter])
     # do we need separate function?
-    residuals_date, recoveries_date = generate_residual_act_investor_date(
+    residuals_current_date, arrears_date, recoveries_date = \
+        generate_residual_act_investor_date(
                                 act_pay_date[act_pay_date_filter],
                                 plan_pay[plan_filter],
                                 act_pay_monthly[act_pay_monthly_EOM_filter],
@@ -831,7 +755,8 @@ def calc_IRR(loans, loan_fundings,
 
     cash_list_actual_date = drop_none([loan_principals_date,
                                   loan_payments_date,
-                                  residuals_date,
+                                  residuals_current_date,
+                                  arrears_date,
                                   recoveries_date,
                                   repaid_loans_cash])
 
@@ -861,17 +786,17 @@ def calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly):
 
     split='overall'
     gps_actual[split]=[zx.groupby(['dcf']).payment.sum().reset_index('dcf') \
-                     for zx in cash_lists['cash_list_actual']]
+                     for zx in cash_lists['cash_list_actual_monthly']]
 
     gps_expected[split]=[zx.groupby(['dcf']).payment.sum().reset_index('dcf') \
-                     for zx in cash_lists['cash_list_expected']]
+                     for zx in cash_lists['cash_list_expected_monthly']]
 
     actual_monthly_overall = xirr(gps_actual[split])
     expected_monthly_overall = xirr(gps_expected[split])
     
     for split in splits:
-        gps_actual[split] = group_payment_sum(cash_list_actual, split)
-        gps_expected[split] = group_payment_sum(cash_list_expected, split)
+        gps_actual[split] = group_payment_sum(cash_lists['cash_list_actual_monthly'], split)
+        gps_expected[split] = group_payment_sum(cash_lists['cash_list_expected_monthly'], split)
 
     for split in (splits ):
         act_irr=xirr_group(gps_actual[split])
@@ -892,9 +817,9 @@ def calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly):
 
     # index dropped when merge?
 
-    xirrs[('dwh_country_id', 'fk_loan')] = xirrs[('dwh_country_id', 'fk_loan')].merge(loans[['dwh_country_id', 'fk_loan','rating_base','rating_switch','payback_state']],
-                                          on=['dwh_country_id', 'fk_loan'])
-    xirrs[('dwh_country_id', 'fk_loan')].set_index('dwh_country_id', 'fk_loan',inplace=True)
+    
+    xirrs[('dwh_country_id', 'fk_loan')]\
+    .set_index(['dwh_country_id', 'fk_loan'],inplace=True)
 
     return actual_monthly_overall, expected_monthly_overall, xirrs
 

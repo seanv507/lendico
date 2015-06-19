@@ -4,7 +4,9 @@ Created on Thu Jun 18 12:34:09 2015
 
 @author: Sean Violante
 """
-EOM_dates=pd.date_range('2014-01-01', '2015-05-31', freq='M')
+import pandas as pd
+
+EOM_dates=pd.date_range('2015-01-01', '2015-05-31', freq='M')
 minimum_vintage=pd.tseries.offsets.MonthEnd(3)
 pd.DataFrame({'d':EOM_dates,'e':EOM_dates -minimum_vintage})
 
@@ -28,31 +30,32 @@ actual_payments_monthly_cnt = \
 act_pay_monthly_cnt = \
     actual_payments_combined[(actual_payments_combined.dwh_country_id == \
                               dwh_country_id) & 
-                              ~actual_payments_combined.fk_loan.isin(repaid_loans)]
+                              ~actual_payments_combined.fk_loan.isin(repaid_loans_cnt)]
 
 act_pay_date_cnt = \
     actual_payments_combined_date[
         (actual_payments_combined_date.dwh_country_id == dwh_country_id) & 
-        ~actual_payments_combined_date.fk_loan.isin(repaid_loans)]
+        ~actual_payments_combined_date.fk_loan.isin(repaid_loans_cnt)]
 
 
 plan_repaid_cnt = \
-    payment_plans_combined[(payment_plans__combined.dwh_country_id == \
+    payment_plans_combined[(payment_plans_combined.dwh_country_id == \
                               dwh_country_id) &
-                           payment_plans_combined.fk_loan.isin(repaid_loans)]
+                           payment_plans_combined.fk_loan.isin(repaid_loans_cnt)]
 # problem with combined payment plan so exclude all "closed" loans cut off at payback complete date
                               
 plan_pay_cnt = \
-    payment_plans_combined[(loans.dwh_country_id==dwh_country_id) & 
+    payment_plans_combined[(payment_plans_combined.dwh_country_id==dwh_country_id) & 
         ~(payment_plans_combined.fk_loan.isin(filtered_de_payments + 
-                                        repaid_loans.values.tolist()))]                                                             
+                                        repaid_loans_cnt.values.tolist()))]                                                             
 
 cash_keys=['dwh_country_id', 'fk_loan', 'fk_user_investor', 'payout_date']
 
 selected_reporting_dates=reporting_dates
 # need it in adding key in concatenating reports
 
-splits = [('payout_quarter'), ('rating_base'), ('fk_loan'), ('rating_switch','rating_base')]
+splits = [('payout_quarter'), ('rating_base'), 
+              ('dwh_country_id','fk_loan'), ('payout_quarter','rating_base')]
 
 # although we don't need to filter out loans <month old we do so to match actual return
 
@@ -84,7 +87,15 @@ for EOM_date in selected_reporting_dates:
                   act_pay_monthly_EOM_filter, 
              max_payout_date, EOM_date,
              actual_payments_monthly_cnt, cash_keys)
-        
+    # enrich data    
+    loan_keys = ['dwh_country_id', 'fk_loan']
+    # originated quarter
+    loan_fields = ['payout_quarter', 'rating_base', 
+                   'payback_state', 'eur_principal_amount']
+             
+    nars = drop_merge(nars.reset_index(), loans_cnt, loan_keys, loan_fields)
+    nars.set_index(loan_keys, inplace=True)
+
     cash_lists=calc_IRR(loans_cnt, loan_fundings_cnt,
              act_pay_monthly_cnt, act_pay_date_cnt,
              plan_repaid_cnt, plan_pay_cnt,
@@ -94,19 +105,11 @@ for EOM_date in selected_reporting_dates:
              max_payout_date, EOM_date, cash_keys, filtered_de_payments,
              arrears_dict)
 
-    # enrich data    
-    loan_keys = ['dwh_country_id', 'fk_loan']
-    # originated quarter
-    loan_fields = ['payout_quarter', 'rating_base', 
-                   'rating_switch', 'payback_state']
     cash_lists = {key: 
-                  [drop_merge(cash, loans, loan_keys, loan_fields) for
+                  [drop_merge(cash, loans_cnt, loan_keys, loan_fields) for
                         cash in cash_list] 
-                  for (key, cash_list) in cash_dicts.iteritems()}         
-        
-    
-    splits = [('payout_quarter'), ('rating_base'), 
-              ('dwh_country_id','fk_loan'), ('rating_switch','rating_base')]
+                  for (key, cash_list) in cash_lists.iteritems()}         
+
     actual_monthly_overall, expected_monthly_overall, xirrs =  \
         calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly_cnt)
     
