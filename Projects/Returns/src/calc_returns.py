@@ -6,7 +6,7 @@ Created on Thu Jun 18 12:34:09 2015
 """
 import pandas as pd
 
-EOM_dates=pd.date_range('2015-01-01', '2015-05-31', freq='M')
+EOM_dates=pd.date_range('2015-05-01', '2015-05-31', freq='M')
 minimum_vintage=pd.tseries.offsets.MonthEnd(3)
 pd.DataFrame({'d':EOM_dates,'e':EOM_dates -minimum_vintage})
 
@@ -59,12 +59,10 @@ splits = [('payout_quarter'), ('rating_base'),
 
 # although we don't need to filter out loans <month old we do so to match actual return
 
+xirrs_overall_list = []
+xirrs_all_list = {}
+xirrs_all = {}
 
-xirrs_all_list={}
-xirrs_all={}
-
-xirrs_overall =pd.DataFrame({'actual_monthly':np.nan, 'expected_monthly': np.nan},
-                            index=selected_reporting_dates)
 
 for split in (splits):
     xirrs_all_list[split]=[]
@@ -110,11 +108,11 @@ for EOM_date in selected_reporting_dates:
                         cash in cash_list] 
                   for (key, cash_list) in cash_lists.iteritems()}         
 
-    actual_monthly_overall, expected_monthly_overall, xirrs =  \
+    xirrs_overall, xirrs =  \
         calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly_cnt)
-    
-    xirrs_overall.loc[EOM_date, 'actual_monthly'] = actual_monthly_overall
-    xirrs_overall.loc[EOM_date, 'expected_monthly'] = expected_monthly_overall
+        
+    xirrs_overall_list.append(xirrs_overall)
+
     cols=[c for c in nars.columns if c not in \
           ['in_arrears_since','in_arrears_since_days', 
            'in_arrears_since_days_30360',  
@@ -126,8 +124,8 @@ for EOM_date in selected_reporting_dates:
     for split in splits :
         xirrs_all_list[split].append(xirrs[split])
 
-    
-    
+xirrs_overall=pd.DataFrame.from_records(data=xirrs_overall_list, \
+                                        index=selected_reporting_dates)    
 for split in splits :
     xirrs_all[split] = pd.concat( xirrs_all_list[split], keys=selected_reporting_dates)
 

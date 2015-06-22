@@ -136,10 +136,10 @@ select
 	pp.eur_payment_amount_borrower, 
 	pp.eur_principal_amount_borrower, 
 	pp.eur_interest_amount_borrower, 
-	pp.eur_initial_principal_amount_borrower,
+	coalesce(pp.eur_initial_principal_amount_borrower, l.eur_principal_amount) eur_initial_principal_amount_borrower,
 	pp.eur_sum_interval_interest_amount_borrower,
 	pp.eur_residual_interest_amount_borrower,
-	pp.eur_residual_principal_amount_borrower,
+	coalesce(pp.eur_residual_principal_amount_borrower,l.eur_principal_amount) eur_residual_principal_amount_borrower,
 	pp.calc_service_fee,
 
 	pp.eur_payment_amount_investor, 
@@ -152,8 +152,8 @@ select
 	pp.eur_interest_amount_investor_cum_exc0,
 	pp.eur_residual_interest_amount_investor,
 	pp.eur_principal_amount_investor_cum,
-	pp.eur_initial_principal_amount_investor,
-	pp.eur_residual_principal_amount_investor,
+	coalesce(pp.eur_initial_principal_amount_investor,lf.eur_amount) eur_initial_principal_amount_investor,
+	coalesce(pp.eur_residual_principal_amount_investor,lf.eur_amount) eur_residual_principal_amount_investor,
 
 	expected_amount_cum,
 	actual_amount_change, 

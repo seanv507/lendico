@@ -1,27 +1,27 @@
 with 
 actual_payments as (
 	select
-		dp.dwh_country_id, 
-		dp.fk_user as fk_user_borrower, 
-		dp.fk_loan, 
-		dp.loan_request_nr,
-		dp.iso_date,
-		dp.expected_amount_cum, 
-		dp.actual_amount_cum, 
+		ap.dwh_country_id, 
+		ap.fk_user as fk_user_borrower, 
+		ap.fk_loan, 
+		ap.loan_request_nr,
+		ap.iso_date,
+		ap.expected_amount_cum, 
+		ap.actual_amount_cum, 
 		in_arrears_flag, 
-		dp.in_arrears_since,
+		ap.in_arrears_since,
 		in_arrears_since_days,
 		-- expected/actual payment over month (by taking diff of cumsum)
-		dp.expected_amount_cum - lag(expected_amount_cum,1,0.0) over W_pay expected_amount_month,
-		dp.actual_amount_cum - lag(actual_amount_cum,1,0.0) over W_pay actual_amount_month
-    from base.payments dp
+		ap.expected_amount_cum - lag(expected_amount_cum,1,0.0) over W_pay expected_amount_month,
+		ap.actual_amount_cum - lag(actual_amount_cum,1,0.0) over W_pay actual_amount_month
+    from base.payments ap
     join base.loan_payback lp on 
-		lp.dwh_country_id=dp.dwh_country_id and 
-		lp.fk_loan=dp.fk_loan
+		lp.dwh_country_id=ap.dwh_country_id and 
+		lp.fk_loan=ap.fk_loan
 	where 
-		dp.iso_date=(date_trunc('MONTH', dp.iso_date) + INTERVAL '1 MONTH - 1 day')::date and 
-		(lp.state!='payback_complete' or lp.in_arrears_since is not null or dp.iso_date <=lp.last_payment_date)
-	WINDOW W_pay as ( partition by dp.dwh_country_id, dp.fk_loan  order by dp.iso_date)
+		ap.iso_date=(date_trunc('MONTH', ap.iso_date) + INTERVAL '1 MONTH - 1 day')::date and 
+		(lp.state!='payback_complete' or lp.in_arrears_since is not null or ap.iso_date <=lp.last_payment_date)
+	WINDOW W_pay as ( partition by ap.dwh_country_id, ap.fk_loan  order by ap.iso_date)
     ),
     -- select End of month, excluding those that have now paid back ( apart from those that were paid back by lendico)
     -- find corresponding payment plan item.
@@ -33,7 +33,7 @@ actual_payments_cum as (
 	select
 		ap.dwh_country_id, 
 		ap.fk_loan,
-		-- dp.iso_date as date,min(pp.interval) as interval, min(interval_payback_date) interval_payback_date--, dp.actual_amount_cum, pp.payment_amount_cum'
+		-- ap.iso_date as date,min(pp.interval) as interval, min(interval_payback_date) interval_payback_date--, ap.actual_amount_cum, pp.payment_amount_cum'
 		ap.iso_date,
 		max(pp.interval) as interval
 
@@ -117,8 +117,8 @@ select
 	pp.eur_interest_amount_cum_exc0,
 	pp.eur_residual_interest_amount,
 	pp.eur_principal_amount_cum,
-	pp.eur_initial_principal_amount,
-	pp.eur_residual_principal_amount,
+	coalesce(pp.eur_initial_principal_amount, l.eur_principal_amount) eur_initial_principal_amount,
+	coalesce(pp.eur_residual_principal_amount, l.eur_principal_amount) eur_residual_principal_amount,
 
 	expected_amount_month, 
 	expected_amount_cum,

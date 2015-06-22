@@ -132,10 +132,10 @@ select
 	pp.eur_payment_amount_borrower, 
 	pp.eur_principal_amount_borrower, 
 	pp.eur_interest_amount_borrower, 
-	pp.eur_initial_principal_amount_borrower,
+	coalesce(pp.eur_initial_principal_amount_borrower, l.eur_principal_amount) eur_initial_principal_amount_borrower,
 	pp.eur_sum_interval_interest_amount_borrower,
 	pp.eur_residual_interest_amount_borrower,
-	pp.eur_residual_principal_amount_borrower, 
+	coalesce( pp.eur_residual_principal_amount_borrower, l.eur_principal_amount) eur_residual_principal_amount_borrower, 
 	pp.calc_service_fee,
 
 	pp.eur_payment_amount_investor, 
@@ -148,8 +148,8 @@ select
 	pp.eur_interest_amount_investor_cum_exc0,
 	pp.eur_residual_interest_amount_investor,
 	pp.eur_principal_amount_investor_cum,
-	pp.eur_initial_principal_amount_investor,
-	pp.eur_residual_principal_amount_investor,
+	coalesce (pp.eur_initial_principal_amount_investor,lf.amount) eur_initial_principal_amount_investor,
+	coalesce(pp.eur_residual_principal_amount_investor,lf.amount) eur_residual_principal_amount_investor,
 
 	expected_amount_month, 
 	expected_amount_cum,
@@ -185,7 +185,7 @@ left join paymentplan pp on
 where  
 	--ap.dwh_country_id=1 and 
 	ap.iso_date <=current_date and 
-	(lf.state='funded' ) --or lf.close_reason is not null)
+	(lf.state='funded' or lf.close_reason is not null)
 WINDOW W as( partition by ap.dwh_country_id, ap.fk_loan, pp.fk_user_investor  order by ap.iso_date)
 order by dwh_country_id,fk_loan,iso_date
 

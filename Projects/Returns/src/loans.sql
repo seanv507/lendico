@@ -9,6 +9,7 @@ select
     ranking.rating as ranking_rating, 
 	ranking.pd_start as ranking_pd_start, 
 	ranking.pd_end as ranking_pd_end,
+	ranking.targeted_yield,
     lp.payback_day,
 	lp.payout_date, 
 	lp.state as payback_state, 
