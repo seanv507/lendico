@@ -261,6 +261,8 @@ def extend_actual_payments(actual_payments, loans):
 
 
 def extend_payment_plans(payment_plans, loan_fundings=None):
+    for p in ['interval_payback_date', 'payout_date']:
+        payment_plans[p] = np.array(payment_plans[p], 'datetime64[D]')
     payment_plans['dcf'] = calc_dcf(payment_plans.interval_payback_date)
 
     if 'eur_initial_principal_amount_borrower' in payment_plans.columns:
@@ -419,6 +421,7 @@ def generate_residual_act_investor(actual, loan_fundings,
                   'in_arrears_since_days_30360',
                   'eur_residual_principal_amount_borrower',
                   'eur_residual_principal_amount_investor']
+    
     act_EOM = actual.loc[(actual.iso_date == EOM_date), act_fields]
     has_defaulted = (act_EOM.in_arrears_since_days_30360 > 90)
     live_loans = act_EOM.loc[~has_defaulted,
@@ -514,7 +517,7 @@ def calc_survival_investor(pp):
     pp['e_eur_recovery_amount'] = \
         pp.default * \
         pp.recovery * \
-        pp.loan_coverage1 * \
+        pp.loan_coverage1/100.0 * \
         pp.eur_initial_principal_amount_borrower * \
         (1 - pp.investment_fee_def/100.0)  # service fee
     pp['e_tot'] = pp.e_eur_payment_amount_investor + pp.e_eur_recovery_amount
@@ -559,7 +562,7 @@ def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
             fut = fut[(fut.latest_paid_interval.isnull()) |
                       (fut.interval > fut.latest_paid_interval)]
             fut.loc[fut.interval_payback_date < EOM_date,
-                    'interval_payback_date'] = EOM_date
+                    'interval_payback_date'] = pd.Timestamp(EOM_date)
             fut['dcf']=calc_dcf(fut['interval_payback_date'])
     else:
         fut = payment_plans.copy()
