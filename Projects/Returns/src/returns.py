@@ -663,7 +663,7 @@ def calc_NAR( act_pay_monthly, plan_repaid,
                             EOM_date.date(),
                             ['dwh_country_id', 'fk_loan'] + arrears_fields],
                         left_index= True,
-                        right_on= ['dwh_country_id', 'fk_loan'])
+                        right_on= ['dwh_country_id', 'fk_loan'], how='left')
 
     nar['interest'] = nar[[('interest_payments',
                               'eur_interest_amount_investor_cum'),
