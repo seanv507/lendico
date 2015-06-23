@@ -710,23 +710,17 @@ def calc_IRR(loans, loan_fundings,
              act_pay_monthly_filter, act_pay_monthly_EOM_filter,
              act_pay_date_filter,
              plan_filter,
-             max_payout_date, EOM_date, cash_keys, filtered_de_payments,
+             max_payout_date, EOM_date, cash_keys,
              arrears_dict):
     # IRR
     loan_principals_monthly = \
         loan_fundings.loc[
-            (loan_fundings.payout_date <=
-                max_payout_date) &
-            ~((loan_fundings.dwh_country_id==1) &
-              loan_fundings.fk_loan.isin(filtered_de_payments)),
+            (loan_fundings.payout_date <= max_payout_date),
             cash_keys + ['payout_date_EOM', 'dcf_EOM', 'payment']].\
-            rename(columns={'dcf_EOM': 'dcf'})
+        rename(columns={'dcf_EOM': 'dcf'})
     loan_principals_date = \
         loan_fundings.loc[
-            (loan_fundings.payout_date <=
-                max_payout_date) &
-            ~((loan_fundings.dwh_country_id==1) &
-              loan_fundings.fk_loan.isin(filtered_de_payments)),
+            (loan_fundings.payout_date <= max_payout_date),
             cash_keys + ['payout_date', 'dcf', 'payment']]
 
     # loan payments may have payments for loans that have been filterd out
@@ -767,11 +761,20 @@ def calc_IRR(loans, loan_fundings,
         expected_cashflows = expected_cashflows.rename(columns={'e_tot': 'payment'})
 
 
-        future_cashflows_plan = make_future_pd(plan_pay[plan_filter], act_pay_monthly[act_pay_monthly_EOM_filter],loans,
+        future_cashflows_plan_pay = make_future_pd(plan_pay[plan_filter], act_pay_monthly[act_pay_monthly_EOM_filter],loans,
                         arrears_dict, False)
-        expected_cashflows_plan = future_cashflows_plan[cash_keys + ['dcf', 'e_tot']].copy()
-        expected_cashflows_plan = expected_cashflows_plan.rename(columns={'e_tot': 'payment'})
+        expected_cashflows_plan_pay = future_cashflows_plan_pay[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_plan_pay = expected_cashflows_plan_pay.rename(columns={'e_tot': 'payment'})
 
+
+        future_cashflows_plan_repaid = make_future_pd(
+                plan_repaid[plan_repaid.payout_date <= max_payout_date], 
+                act_pay_monthly[act_pay_monthly_EOM_filter],loans,
+                arrears_dict, False)
+        expected_cashflows_plan_repaid = \
+            future_cashflows_plan_repaid[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_plan_repaid = \
+            expected_cashflows_plan_repaid.rename(columns={'e_tot': 'payment'})
 
     else:
         expected_cashflows=None
@@ -793,8 +796,6 @@ def calc_IRR(loans, loan_fundings,
                                   recoveries_date,
                                   repaid_loans_cash])
 
-
-
     cash_list_expected_monthly =  drop_none([loan_principals_monthly,
                                      loan_payments_monthly,
                                      expected_cashflows,
@@ -806,7 +807,8 @@ def calc_IRR(loans, loan_fundings,
                                      repaid_loans_cash])
 
     cash_list_expected_date_plan = drop_none([loan_principals_date,
-                                     expected_cashflows_plan])
+                                     expected_cashflows_plan_pay, 
+                                     expected_cashflows_plan_repaid])
 
 
     return {'cash_list_actual_monthly'  : cash_list_actual_monthly,
@@ -844,7 +846,7 @@ def calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly):
                                'in_arrears_since', 'in_arrears_since_days',
                                'in_arrears_since_days_30360','bucket','bucket_pd']],
         left_index=True, \
-        right_on=['dwh_country_id', 'fk_loan'])
+        right_on=['dwh_country_id', 'fk_loan'], how='left')
 
     # index dropped when merge?
 
