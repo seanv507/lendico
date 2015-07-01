@@ -1,5 +1,6 @@
 select 
 	l.*, 
+	left(l.rating,1) as rating_base,
 	gblrc.credit_agency_score, 
 	gblrc.pd, 
 	gblrc.pd_original, 
@@ -11,7 +12,12 @@ select
 	ranking.pd_end as ranking_pd_end,
 	ranking.targeted_yield,
     lp.payback_day,
-	lp.payout_date, 
+	lp.payout_date,
+	case when lp.payout_date>='2014-01-01' then
+		to_char(lp.payout_date,'YYYY_"Q"Q')
+	else
+		'2014_Q1'
+	end	as payout_quarter,
 	lp.state as payback_state, 
 	lp.auto_in_arrears_since, 
 	lp.in_arrears_since in_arrears_since_man

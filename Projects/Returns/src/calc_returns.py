@@ -6,6 +6,15 @@ Created on Thu Jun 18 12:34:09 2015
 """
 import pandas as pd
 
+def lose_guaranteed_offer(table, lf):
+    table = drop_merge(table, lf,
+                       keys=['dwh_country_id', 'fk_loan', 'fk_user_investor'],
+                       fields=['state'], how='left')
+    table = table[table['state'] == 'funded'].\
+            drop('state', axis=1, inplace=False, errors='ignore')
+    return table
+
+
 EOM_dates=pd.date_range('2015-05-01', '2015-05-31', freq='M')
 minimum_vintage=pd.tseries.offsets.MonthEnd(3)
 pd.DataFrame({'d':EOM_dates,'e':EOM_dates -minimum_vintage})
@@ -19,7 +28,8 @@ loans_cnt = loans[(loans.dwh_country_id == dwh_country_id) &
                     ~(loans.fk_loan.isin(filtered_de_payments))]
 loan_fundings_cnt = loan_fundings[
                         (loan_fundings.dwh_country_id == dwh_country_id)  &
-                    ~(loan_fundings.fk_loan.isin(filtered_de_payments))]
+                    ~(loan_fundings.fk_loan.isin(filtered_de_payments))
+                    &(loan_fundings.state=='funded')]
 # [these aren't amongst repaid, but would be fine because problem is bad record of actual payments for these loans]
 
 repaid_loans_cnt = loans_cnt.fk_loan[
@@ -33,25 +43,28 @@ act_pay_monthly_cnt = \
     actual_payments_combined[(actual_payments_combined.dwh_country_id == \
                               dwh_country_id) &
                               ~actual_payments_combined.fk_loan.isin(repaid_loans_cnt)]
-
+act_pay_monthly_cnt = lose_guaranteed_offer(act_pay_monthly_cnt, loan_fundings_cnt)
+                                 
 act_pay_date_cnt = \
     actual_payments_combined_date[
         (actual_payments_combined_date.dwh_country_id == dwh_country_id) &
         ~actual_payments_combined_date.fk_loan.isin(repaid_loans_cnt)]
 
-
+act_pay_date_cnt = lose_guaranteed_offer(act_pay_date_cnt, loan_fundings_cnt)
 plan_repaid_cnt = \
     payment_plans_combined[(payment_plans_combined.dwh_country_id == \
                               dwh_country_id) &
                            payment_plans_combined.fk_loan.isin(repaid_loans_cnt)]
+plan_repaid_cnt = lose_guaranteed_offer(plan_repaid_cnt, loan_fundings_cnt)
 # problem with combined payment plan so exclude all "closed" loans cut off at payback complete date
 
 plan_pay_cnt_all = \
     payment_plans_combined[(payment_plans_combined.dwh_country_id==dwh_country_id) &
         ~(payment_plans_combined.fk_loan.isin(filtered_de_payments))]
+plan_pay_cnt_all = lose_guaranteed_offer(plan_pay_cnt_all, loan_fundings_cnt)
 plan_pay_cnt = plan_pay_cnt_all[ \
     ~(plan_pay_cnt_all.fk_loan.isin(repaid_loans_cnt.values.tolist()))]
-
+plan_pay_cnt = lose_guaranteed_offer(plan_pay_cnt, loan_fundings_cnt)
 cash_keys=['dwh_country_id', 'fk_loan', 'fk_user_investor', 'payout_date']
 
 selected_reporting_dates=reporting_dates

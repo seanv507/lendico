@@ -96,6 +96,7 @@ def calc_dcf(dates):
 
 
 def calc_quarter(z):
+	# not necc do it in sql
     # pandas problem? copy turned datetime objects to long
     return z.map(lambda x: '{}_Q{}'.format(x.year, ((x.month - 1) // 3) + 1))
 
@@ -163,14 +164,8 @@ def xirr_group(grps):
 def extend_loans(loans):
     loans.rename(columns={'id_loan': 'fk_loan'}, inplace=True)
 
-    loans['rating_base'] = loans.rating.str[0]
     loans['payout_date'] = \
         np.array(loans.payout_date, 'datetime64[D]')
-
-    loans['payout_quarter'] = calc_quarter(loans['payout_date'])
-    loans.loc[loans['payout_date'] < np.datetime64('2014-01-01', 'D'),
-              'payout_quarter'] = '2014_Q1'
-    # one loan before
 
     loans['payout_date_EOM'] = loans['payout_date'] \
         + np.array(30 - loans.payback_day, 'timedelta64[D]')
@@ -655,6 +650,14 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     # add in dataframe name to disambiguate
 
     nar_df = pd.concat(gps_nar, axis=1)
+
+
+    
+    # pandas creates tuple of names, rather than string of tuple
+    tuple_names={nam: str(nam).replace("'","") 
+                 for nam in nar_df.columns if isinstance(nam, tuple )}
+    nar_df.rename(columns=tuple_names, inplace=True)
+    
     arrears_fields = ['in_arrears_since', 'in_arrears_since_days',
                       'in_arrears_since_days_30360',
                       'bucket', 'bucket_pd']
@@ -665,35 +668,31 @@ def calc_NAR( act_pay_monthly, plan_repaid,
                         left_index= True,
                         right_on= ['dwh_country_id', 'fk_loan'], how='left')
 
-    nar['interest'] = nar[[('interest_payments',
-                              'eur_interest_amount_investor_cum'),
-                              ('payments_repaid',
-                               'eur_interest_amount_investor')]].sum(axis=1)
-    nar['interest'] -= nar[('interest_payments_int0',
-                              'eur_interest_amount_investor')].fillna(0)
+    nar['interest'] = nar[['(interest_payments, eur_interest_amount_investor_cum)',
+                              '(payments_repaid, eur_interest_amount_investor)']].sum(axis=1)
+    nar['interest'] -= nar['(interest_payments_int0, eur_interest_amount_investor)'].fillna(0)
 
     nar['default_loss'] = (nar['bucket'] >= 120) * \
-                           nar[('in_arrears', 'lost_principal')]
+                           nar['(in_arrears, lost_principal)']
     nar['note_status_adjustment'] = (nar['bucket'] < 120) * \
                                      nar['bucket_pd'] * \
-                                     nar[('in_arrears', 'lost_principal')]
+                                     nar['(in_arrears, lost_principal)']
 
     nar['bucket0_lost'] = (nar['bucket'] == 0) * \
-                           nar[('in_arrears', 'lost_principal')]
+                           nar['(in_arrears, lost_principal)']
     nar['bucket30_lost'] = (nar['bucket'] == 30) *\
-                            nar[('in_arrears', 'lost_principal')]
+                            nar['(in_arrears, lost_principal)']
     nar['bucket60_lost'] = (nar['bucket'] == 60) *\
-                            nar[('in_arrears', 'lost_principal')]
+                            nar['(in_arrears, lost_principal)']
     nar['bucket90_lost'] = (nar['bucket'] == 90) *\
-                            nar[('in_arrears','lost_principal')]
+                            nar['(in_arrears, lost_principal)']
     # sum ignores nans
     nar['monthly_principals'] = \
-        nar[[('initial_principal','eur_initial_principal_amount_investor'),
-              ('payments_repaid', 'eur_initial_principal_amount_investor')]].\
+        nar[['(initial_principal, eur_initial_principal_amount_investor)',
+              '(payments_repaid, eur_initial_principal_amount_investor)']].\
               sum(axis=1)
     nar['monthly_principals'] = nar['monthly_principals'] - \
-        nar[[('initial_principal_int0',
-               'eur_initial_principal_amount_investor')]].\
+        nar[[('initial_principal_int0, eur_initial_principal_amount_investor')]].\
         fillna(0).values.squeeze()
     nar['top'] = nar[['interest', 'default_loss']].sum(axis=1)
     nar['nar'] = annualise(nar['top']/nar['monthly_principals'])

@@ -7,6 +7,7 @@ select
     pp.country_name, 
 	pp.currency_code, 
 	pp.loan_request_creation_date,
+	lp.payout_date,
     interval, 
 	interval_payback_date, 
 	next_interval_payback_date,
@@ -21,6 +22,9 @@ from base.loan_payment_plan_item pp
 join base.loan l on          
 	pp.dwh_country_id=l.dwh_country_id and 
 	pp.fk_loan=l.id_loan
+join base.loan_payback lp on 
+	pp.dwh_country_id=lp.dwh_country_id and 
+	pp.fk_loan=lp.fk_loan
 where
     -- pp.dwh_country_id=1 and 
     l.state!='canceled'  and 
