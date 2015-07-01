@@ -56,6 +56,28 @@ def get_sql_strings():
     return sql_dict
 
 
+def filter_loans(df, exclude_by_country):
+    """ return only countries in exclude by country and filtering out loans"""
+    loans_mask = False
+    for country,loans in exclude_by_country.iteritems():
+        loans_mask |= ((df.dwh_country_id==country) & ~(df.fk_loan.isin(loans)))
+    return df[loans_mask]
+
+def test_filter_loans():
+    exc={1:[32,64], 2:[48,45]}
+    df=pd.DataFrame({'dwh_country_id': [1,1,1,1,2,2,2,2],
+                     'fk_loan': [16,32,64,32,47,48,45,64]})
+    print 'expect :'
+    print pd.DataFrame({'dwh_country_id': [1, 2, 2],
+                     'fk_loan': [16,47,64]})
+    return filter_loans(df,exc)
+
+def select_loans(df, select_by_country):
+    loans_mask = False
+    for country, loans in select_by_country.iteritems():
+        loans_mask |= ((df.dwh_country_id == country) & (df.fk_loan.isin(loans)))
+    return df[loans_mask]
+
 def annualise(x):
         return np.power(1 + x, 12) - 1
 
@@ -656,7 +678,7 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     # pandas creates tuple of names, rather than string of tuple
     tuple_names={nam: str(nam).replace("'","") 
                  for nam in nar_df.columns if isinstance(nam, tuple )}
-    nar_df.rename(columns=tuple_names, inplace=True)
+    
     
     arrears_fields = ['in_arrears_since', 'in_arrears_since_days',
                       'in_arrears_since_days_30360',
@@ -667,7 +689,9 @@ def calc_NAR( act_pay_monthly, plan_repaid,
                             ['dwh_country_id', 'fk_loan'] + arrears_fields],
                         left_index= True,
                         right_on= ['dwh_country_id', 'fk_loan'], how='left')
-
+    # nar_df has multi_index and doesn't match
+    # when we merge the multiindices are converted to normal
+    nar.rename(columns=tuple_names, inplace=True)
     nar['interest'] = nar[['(interest_payments, eur_interest_amount_investor_cum)',
                               '(payments_repaid, eur_interest_amount_investor)']].sum(axis=1)
     nar['interest'] -= nar['(interest_payments_int0, eur_interest_amount_investor)'].fillna(0)
@@ -692,7 +716,7 @@ def calc_NAR( act_pay_monthly, plan_repaid,
               '(payments_repaid, eur_initial_principal_amount_investor)']].\
               sum(axis=1)
     nar['monthly_principals'] = nar['monthly_principals'] - \
-        nar[[('initial_principal_int0, eur_initial_principal_amount_investor')]].\
+        nar[['(initial_principal_int0, eur_initial_principal_amount_investor)']].\
         fillna(0).values.squeeze()
     nar['top'] = nar[['interest', 'default_loss']].sum(axis=1)
     nar['nar'] = annualise(nar['top']/nar['monthly_principals'])
