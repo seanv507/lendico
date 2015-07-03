@@ -15,7 +15,7 @@ def lose_guaranteed_offer(table, lf):
     return table
 
 
-EOM_dates=pd.date_range('2015-05-01', '2015-06-30', freq='M')
+EOM_dates=pd.date_range('2014-04-01', '2015-06-30', freq='M')
 
 minimum_vintage=pd.tseries.offsets.MonthEnd(3)
 pd.DataFrame({'d':EOM_dates,'e':EOM_dates -minimum_vintage})
@@ -86,8 +86,17 @@ cash_keys=['dwh_country_id', 'fk_loan', 'fk_user_investor', 'payout_date']
 selected_reporting_dates=reporting_dates
 # need it in adding key in concatenating reports
 
-splits = [('dwh_country_id','payout_quarter'), 
+# enrich data
+loan_keys = ['dwh_country_id', 'fk_loan']
+# originated quarter
+loan_fields = ['payout_quarter', 'rating_base',
+               'gblrc_rating_mapped', 'gblrc_rating_mapped_base',
+               'payback_state', 'eur_principal_amount']
+
+splits = ['dwh_country_id',
+          ('dwh_country_id','payout_quarter'), 
           ('dwh_country_id','rating_base'),
+          ('dwh_country_id','gblrc_rating_mapped_base'),
           ('dwh_country_id','fk_loan'), 
           ('dwh_country_id','payout_quarter','rating_base')]
 
@@ -114,27 +123,29 @@ for EOM_date in selected_reporting_dates:
         (act_pay_monthly_base.iso_date == EOM_date.date())
 
     plan_filter = (plan_pay_base.payout_date <= max_payout_date)
-
-    nars=calc_NAR(act_pay_monthly_base, plan_repaid_base, act_pay_monthly_filter,
-                  act_pay_monthly_EOM_filter,
-             max_payout_date, EOM_date,
+    plan_repaid_filtered = \
+        plan_repaid_base[plan_repaid_base.payout_date<= max_payout_date]
+    loans_filtered = \
+        loans_base[loans_base.payout_date <= max_payout_date]
+    loan_fundings_filtered = \
+        loan_fundings_base[loan_fundings_base.payout_date <= max_payout_date]
+    nars=calc_NAR(act_pay_monthly_base, plan_repaid_filtered, act_pay_monthly_filter,
+                  act_pay_monthly_EOM_filter, EOM_date,
              actual_payments_monthly_base, cash_keys)
-    # enrich data
-    loan_keys = ['dwh_country_id', 'fk_loan']
-    # originated quarter
-    loan_fields = ['payout_quarter', 'rating_base',
-                   'payback_state', 'eur_principal_amount']
+    
 
     nars = drop_merge(nars.reset_index(), loans_base, loan_keys, loan_fields)
     nars.set_index(loan_keys, inplace=True)
 
-    cash_lists=calc_IRR(loans_base, loan_fundings_base,
-             act_pay_monthly_base, act_pay_date_base,
-             plan_repaid_base, plan_pay_base,
-             act_pay_monthly_filter, act_pay_monthly_EOM_filter,
-             act_pay_date_filter,
-             plan_filter,
-             max_payout_date, EOM_date, cash_keys, arrears_dict)
+    cash_lists=calc_IRR(loans_base, 
+         loan_fundings_filtered,
+         act_pay_monthly_base, act_pay_date_base,
+         plan_repaid_filtered, 
+         plan_pay_base,
+         act_pay_monthly_filter, act_pay_monthly_EOM_filter,
+         act_pay_date_filter,
+         plan_filter,
+         EOM_date, cash_keys)
 
     cash_lists = {key:
                   [drop_merge(cash, loans_base, loan_keys, loan_fields) for
@@ -145,7 +156,7 @@ for EOM_date in selected_reporting_dates:
         calc_IRR_groups(EOM_date, splits, cash_lists, actual_payments_monthly_base)
 
     xirrs_overall_list.append(xirrs_overall)
-
+# TODO consider enriching as subsequent step
     cols=[c for c in nars.columns if c not in \
           ['in_arrears_since','in_arrears_since_days',
            'in_arrears_since_days_30360',
@@ -153,8 +164,13 @@ for EOM_date in selected_reporting_dates:
 
     xirrs[('dwh_country_id', 'fk_loan')] = \
         xirrs[('dwh_country_id', 'fk_loan')].join(nars[cols],how='outer')
-
+    
     for split in splits :
+        loan_data=loans_filtered.groupby(split)['eur_principal_amount'].\
+            agg({'n_loans':'count', 'volume':'sum'})
+        xirrs[split]['n_loans'] = loan_data['n_loans']
+        xirrs[split]['volume_10K'] = loan_data['volume']/10000.0
+         
         xirrs_all_list[split].append(xirrs[split])
 
 xirrs_overall=pd.DataFrame.from_records(data=xirrs_overall_list, \

@@ -438,7 +438,7 @@ def generate_residual_act_investor(actual, loan_fundings,
                   'in_arrears_since_days_30360',
                   'eur_residual_principal_amount_borrower',
                   'eur_residual_principal_amount_investor']
-    
+
     act_EOM = actual.loc[(actual.iso_date == EOM_date), act_fields]
     has_defaulted = (act_EOM.in_arrears_since_days_30360 > 90)
     live_loans = act_EOM.loc[~has_defaulted,
@@ -540,24 +540,24 @@ def calc_survival_investor(pp):
     pp['e_tot'] = pp.e_eur_payment_amount_investor + pp.e_eur_recovery_amount
     return pp
 
-
-def add_pd(pp, act_EOM, loans, use_in_arrears):
+# remove use_in arrears and only pass in act_EOM?
+def add_pd(pp, loans, act_EOM=None):
     """ add pd from loans, divide by 100, and create dupl pd_noarr """
-    pp_pd = pp.merge(act_EOM[['dwh_country_id', 'fk_loan', 'fk_user_investor', 'bucket_pd']],
-                     on=['dwh_country_id', 'fk_loan', 'fk_user_investor'], how='left')
-
-    pp_pd = pp_pd.merge(loans[['dwh_country_id', 'fk_loan', 'pd']],
-                        on=['dwh_country_id', 'fk_loan'])
+    
+    pp_pd = drop_merge(pp, loans, keys=['dwh_country_id', 'fk_loan'],
+                             fields=['pd'])
     pp_pd['pd'] = pp_pd['pd'] / 100.0
     pp_pd['pd_noarr'] = pp_pd['pd']
-    if use_in_arrears:
+    if act_EOM is not None:
+        pp_pd = drop_merge(pp_pd, act_EOM, keys=['dwh_country_id', 'fk_loan', 'fk_user_investor'],
+                                 fields=['bucket_pd'], how='left')
         pp_pd.loc[pp_pd.bucket_pd.notnull(), 'pd'] = \
             pp_pd.loc[pp_pd.bucket_pd.notnull(), 'bucket_pd']
     return pp_pd
 
 
-def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
-                   EOM_date=None, latest_paid_interval=None):
+def make_future_pd(payment_plans, loans, EOM_date=None, 
+                   latest_paid_interval=None,  act_EOM=None):
     """ select future payments after EOM_date_str or after last paid_interval
         if last_paid_interval provided then use those too and
         set any dates before EOM to EOM
@@ -584,7 +584,7 @@ def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
     else:
         fut = payment_plans.copy()
     # drop intervals already in actual???
-    fut_pd = add_pd(fut, act_EOM, loans, use_in_arrears)
+    fut_pd = add_pd(fut, loans, act_EOM)
     fut_pd = calc_survival_investor(fut_pd)
     return fut_pd
 
@@ -592,7 +592,7 @@ def make_future_pd(payment_plans, act_EOM, loans, arrears_dict, use_in_arrears,
 
 def calc_NAR( act_pay_monthly, plan_repaid,
              act_filter, act_EOM_filter,
-             max_payout_date, EOM_date,
+             EOM_date,
              actual_payments_monthly,
              cash_keys):
     # NAR
@@ -623,8 +623,7 @@ def calc_NAR( act_pay_monthly, plan_repaid,
                                 reset_index()
 
     payments_repaid = \
-        plan_repaid.loc[(plan_repaid.payout_date <= max_payout_date) &
-                        (plan_repaid.interval > 0) &
+        plan_repaid.loc[(plan_repaid.interval > 0) &
                         (plan_repaid.interval_payback_date <= EOM_date.date()),
                         cash_keys +
                         ['eur_interest_amount_investor',
@@ -674,12 +673,12 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     nar_df = pd.concat(gps_nar, axis=1)
 
 
-    
+
     # pandas creates tuple of names, rather than string of tuple
-    tuple_names={nam: str(nam).replace("'","") 
+    tuple_names={nam: str(nam).replace("'","")
                  for nam in nar_df.columns if isinstance(nam, tuple )}
-    
-    
+
+
     arrears_fields = ['in_arrears_since', 'in_arrears_since_days',
                       'in_arrears_since_days_30360',
                       'bucket', 'bucket_pd']
@@ -693,8 +692,9 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     # when we merge the multiindices are converted to normal
     nar.rename(columns=tuple_names, inplace=True)
     nar['interest'] = nar[['(interest_payments, eur_interest_amount_investor_cum)',
-                              '(payments_repaid, eur_interest_amount_investor)']].sum(axis=1)
-    nar['interest'] -= nar['(interest_payments_int0, eur_interest_amount_investor)'].fillna(0)
+        '(payments_repaid, eur_interest_amount_investor)']].sum(axis=1)
+    nar['interest'] -= nar[
+        '(interest_payments_int0, eur_interest_amount_investor)'].fillna(0)
 
     nar['default_loss'] = (nar['bucket'] >= 120) * \
                            nar['(in_arrears, lost_principal)']
@@ -726,24 +726,21 @@ def calc_NAR( act_pay_monthly, plan_repaid,
     nar.set_index(['dwh_country_id', 'fk_loan'], inplace=True)
     return nar
 
-
+# strip payout_date out of function
 def calc_IRR(loans, loan_fundings,
              act_pay_monthly, act_pay_date,
              plan_repaid, plan_pay,
              act_pay_monthly_filter, act_pay_monthly_EOM_filter,
              act_pay_date_filter,
              plan_filter,
-             max_payout_date, EOM_date, cash_keys,
-             arrears_dict):
+             EOM_date, cash_keys):
     # IRR
     loan_principals_monthly = \
-        loan_fundings.loc[
-            (loan_fundings.payout_date <= max_payout_date),
+        loan_fundings[
             cash_keys + ['payout_date_EOM', 'dcf_EOM', 'payment']].\
         rename(columns={'dcf_EOM': 'dcf'})
     loan_principals_date = \
-        loan_fundings.loc[
-            (loan_fundings.payout_date <= max_payout_date),
+        loan_fundings[
             cash_keys + ['payout_date', 'dcf', 'payment']]
 
     # loan payments may have payments for loans that have been filterd out
@@ -772,39 +769,68 @@ def calc_IRR(loans, loan_fundings,
     # Expected IRR
     lpi_fields = ['iso_date', 'dwh_country_id', 'fk_loan',
                   'fk_user_investor','interval']
-    latest_paid_interval_investor = \
+    latest_paid_interval_investor_monthly = \
         act_pay_monthly.loc[act_pay_monthly_filter, lpi_fields]\
         .sort('iso_date', inplace=False)\
         .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor']).interval.last()
-    latest_paid_interval_investor.name='latest_paid_interval'
+    latest_paid_interval_investor_monthly.name='latest_paid_interval'
+    latest_paid_interval_investor_date = \
+        act_pay_date.loc[act_pay_date_filter, lpi_fields]\
+        .sort('iso_date', inplace=False)\
+        .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor']).interval.last()
+    latest_paid_interval_investor_date.name='latest_paid_interval'
     if plan_pay[plan_filter].shape[0]>0:
-        future_cashflows = make_future_pd(plan_pay[plan_filter], act_pay_monthly[act_pay_monthly_EOM_filter],loans,
-                        arrears_dict, True,EOM_date.date(),latest_paid_interval_investor)
-        expected_cashflows = future_cashflows[cash_keys + ['dcf', 'e_tot']].copy()
-        expected_cashflows = expected_cashflows.rename(columns={'e_tot': 'payment'})
+        
+#def make_future_pd(payment_plans, loans, EOM_date=None, 
+#                   latest_paid_interval=None,  act_EOM=None):
+        
+        
+        future_cashflows_monthly = \
+            make_future_pd(plan_pay[plan_filter],
+                           loans,
+                           EOM_date.date(),
+                           latest_paid_interval_investor_monthly,
+                           act_pay_monthly[act_pay_monthly_EOM_filter])
+        expected_cashflows_monthly = \
+            future_cashflows_monthly[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_monthly = \
+            expected_cashflows_monthly.rename(columns={'e_tot': 'payment'})
 
+        future_cashflows_date = \
+            make_future_pd(plan_pay[plan_filter], 
+                           loans,
+                           EOM_date.date(),
+                           latest_paid_interval_investor_date,
+                           act_pay_monthly[act_pay_monthly_EOM_filter])
+        expected_cashflows_date = \
+            future_cashflows_date[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_date = \
+            expected_cashflows_date.rename(columns={'e_tot': 'payment'})
 
-        future_cashflows_plan_pay = make_future_pd(plan_pay[plan_filter], act_pay_monthly[act_pay_monthly_EOM_filter],loans,
-                        arrears_dict, False)
-        expected_cashflows_plan_pay = future_cashflows_plan_pay[cash_keys + ['dcf', 'e_tot']].copy()
-        expected_cashflows_plan_pay = expected_cashflows_plan_pay.rename(columns={'e_tot': 'payment'})
+        future_cashflows_plan_pay = \
+            make_future_pd(plan_pay[plan_filter], loans)
+        expected_cashflows_plan_pay = \
+            future_cashflows_plan_pay[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_plan_pay = \
+            expected_cashflows_plan_pay.rename(columns={'e_tot': 'payment'})
 
 
         future_cashflows_plan_repaid = make_future_pd(
-                plan_repaid[plan_repaid.payout_date <= max_payout_date], 
-                act_pay_monthly[act_pay_monthly_EOM_filter],loans,
-                arrears_dict, False)
+                plan_repaid,
+                loans)
         expected_cashflows_plan_repaid = \
             future_cashflows_plan_repaid[cash_keys + ['dcf', 'e_tot']].copy()
         expected_cashflows_plan_repaid = \
             expected_cashflows_plan_repaid.rename(columns={'e_tot': 'payment'})
 
     else:
-        expected_cashflows=None
+        expected_cashflows_monthly=None
+        expected_cashflows_date=None
 
-    repaid_loans_cash = plan_repaid.loc[plan_repaid.payout_date <= max_payout_date,
-                                        cash_keys + ['interval_payback_date', 'dcf', 'eur_payment_amount_investor']]\
-                                   .rename(columns={'eur_payment_amount_investor':'payment'})
+    repaid_loans_cash = \
+        plan_repaid[ cash_keys +
+            ['interval_payback_date', 'dcf', 'eur_payment_amount_investor']]\
+        .rename(columns={'eur_payment_amount_investor':'payment'})
 
     cash_list_actual_monthly = drop_none([loan_principals_monthly,
                                   loan_payments_monthly,
@@ -821,16 +847,16 @@ def calc_IRR(loans, loan_fundings,
 
     cash_list_expected_monthly =  drop_none([loan_principals_monthly,
                                      loan_payments_monthly,
-                                     expected_cashflows,
+                                     expected_cashflows_monthly,
                                      repaid_loans_cash])
 
     cash_list_expected_date =  drop_none([loan_principals_date,
                                      loan_payments_date,
-                                     expected_cashflows,
+                                     expected_cashflows_date,
                                      repaid_loans_cash])
 
     cash_list_expected_date_plan = drop_none([loan_principals_date,
-                                     expected_cashflows_plan_pay, 
+                                     expected_cashflows_plan_pay,
                                      expected_cashflows_plan_repaid])
 
 
