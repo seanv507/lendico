@@ -118,7 +118,7 @@ def calc_dcf(dates):
 
 
 def calc_quarter(z):
-	# not necc do it in sql
+    # not necc do it in sql
     # pandas problem? copy turned datetime objects to long
     return z.map(lambda x: '{}_Q{}'.format(x.year, ((x.month - 1) // 3) + 1))
 
@@ -540,10 +540,64 @@ def calc_survival_investor(pp):
     pp['e_tot'] = pp.e_eur_payment_amount_investor + pp.e_eur_recovery_amount
     return pp
 
+def surv_default(x):
+    z=pd.DataFrame({'survive':x.surv_one.cumprod(),'default': 0})
+    defaulted=~((z.survive).astype(bool))
+    if defaulted.sum()>0:
+        z.at[defaulted.argmax(),'default'] = 1
+    return z
+    # default occurs on first time survive is zero
+
+def calc_survival_investor_MC(pp):
+    """ adds expected cashflows to copy of payment plan
+    survive: probabability of surviving up to (and including) interval
+    """
+
+    pp = pp.copy()
+    pp['interval_rebased'] = \
+        pp[['dwh_country_id', 'fk_loan', 'interval']].\
+        groupby(['dwh_country_id', 'fk_loan']).transform(rebase)
+
+
+    # group by loan and interval
+
+    pds = pd.DataFrame({'pd':pp.groupby(['dwh_country_id', 'fk_loan', 'interval_rebased'])\
+        ['pd'].first()})
+        # aggregate out investors
+    pds['surv_month'] = (1 - pds.pd).pow(1 / 12.0)
+    pds['surv_one'] = np.random.random((pds.shape[0],))<pds['surv_month']
+    pds=pds.reset_index()
+    pds.loc[pds.interval_rebased == 0, 'surv_one']=1
+
+
+    # note in alphabetical order because pandas sorts the dataframe column names
+    pds[['default', 'survive']] = \
+        pds[['dwh_country_id', 'fk_loan', 'interval_rebased', 'surv_one']].\
+        groupby(['dwh_country_id', 'fk_loan']).\
+        apply(surv_default)
+    pds_keys = ['dwh_country_id', 'fk_loan', 'interval_rebased']
+    pds_fields = ['surv_month',  'surv_one', 'default', 'survive']
+    pp = drop_merge(pp, pds, pds_keys, pds_fields, how='left')
+
+    pp['e_eur_payment_amount_investor'] = \
+        pp.survive *\
+        pp.eur_payment_amount_investor
+
+    pp['e_eur_recovery_amount'] = \
+        pp.default * \
+        pp.recovery * \
+        pp.loan_coverage1/100.0 * \
+        pp.eur_initial_principal_amount_borrower * \
+        (1 - pp.investment_fee_def/100.0)  # service fee
+    pp['e_tot'] = pp.e_eur_payment_amount_investor + pp.e_eur_recovery_amount
+    return pp
+
+
+
 # remove use_in arrears and only pass in act_EOM?
 def add_pd(pp, loans, act_EOM=None):
     """ add pd from loans, divide by 100, and create dupl pd_noarr """
-    
+
     pp_pd = drop_merge(pp, loans, keys=['dwh_country_id', 'fk_loan'],
                              fields=['pd'])
     pp_pd['pd'] = pp_pd['pd'] / 100.0
@@ -556,7 +610,7 @@ def add_pd(pp, loans, act_EOM=None):
     return pp_pd
 
 
-def make_future_pd(payment_plans, loans, EOM_date=None, 
+def make_future_pd(payment_plans, loans, EOM_date=None,
                    latest_paid_interval=None,  act_EOM=None):
     """ select future payments after EOM_date_str or after last paid_interval
         if last_paid_interval provided then use those too and
@@ -585,7 +639,7 @@ def make_future_pd(payment_plans, loans, EOM_date=None,
         fut = payment_plans.copy()
     # drop intervals already in actual???
     fut_pd = add_pd(fut, loans, act_EOM)
-    fut_pd = calc_survival_investor(fut_pd)
+
     return fut_pd
 
 
@@ -780,28 +834,33 @@ def calc_IRR(loans, loan_fundings,
         .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor']).interval.last()
     latest_paid_interval_investor_date.name='latest_paid_interval'
     if plan_pay[plan_filter].shape[0]>0:
-        
-#def make_future_pd(payment_plans, loans, EOM_date=None, 
+
+#def make_future_pd(payment_plans, loans, EOM_date=None,
 #                   latest_paid_interval=None,  act_EOM=None):
-        
-        
+
+
         future_cashflows_monthly = \
             make_future_pd(plan_pay[plan_filter],
                            loans,
                            EOM_date.date(),
                            latest_paid_interval_investor_monthly,
                            act_pay_monthly[act_pay_monthly_EOM_filter])
+        future_cashflows_monthly = \
+            calc_survival_investor(future_cashflows_monthly)
         expected_cashflows_monthly = \
             future_cashflows_monthly[cash_keys + ['dcf', 'e_tot']].copy()
         expected_cashflows_monthly = \
             expected_cashflows_monthly.rename(columns={'e_tot': 'payment'})
 
         future_cashflows_date = \
-            make_future_pd(plan_pay[plan_filter], 
+            make_future_pd(plan_pay[plan_filter],
                            loans,
                            EOM_date.date(),
                            latest_paid_interval_investor_date,
                            act_pay_monthly[act_pay_monthly_EOM_filter])
+        future_cashflows_date = \
+            calc_survival_investor(future_cashflows_date)
+
         expected_cashflows_date = \
             future_cashflows_date[cash_keys + ['dcf', 'e_tot']].copy()
         expected_cashflows_date = \
@@ -809,6 +868,9 @@ def calc_IRR(loans, loan_fundings,
 
         future_cashflows_plan_pay = \
             make_future_pd(plan_pay[plan_filter], loans)
+        future_cashflows_plan_pay = \
+            calc_survival_investor(future_cashflows_plan_pay )
+
         expected_cashflows_plan_pay = \
             future_cashflows_plan_pay[cash_keys + ['dcf', 'e_tot']].copy()
         expected_cashflows_plan_pay = \
@@ -818,6 +880,9 @@ def calc_IRR(loans, loan_fundings,
         future_cashflows_plan_repaid = make_future_pd(
                 plan_repaid,
                 loans)
+        future_cashflows_plan_repaid = \
+            calc_survival_investor(future_cashflows_plan_repaid )
+
         expected_cashflows_plan_repaid = \
             future_cashflows_plan_repaid[cash_keys + ['dcf', 'e_tot']].copy()
         expected_cashflows_plan_repaid = \
@@ -863,6 +928,95 @@ def calc_IRR(loans, loan_fundings,
     return {'cash_list_actual_monthly'  : cash_list_actual_monthly,
              'cash_list_actual_date':  cash_list_actual_date,
             'cash_list_expected_monthly': cash_list_expected_monthly,
+            'cash_list_expected_date': cash_list_expected_date,
+            'cash_list_expected_date_plan': cash_list_expected_date_plan
+            }
+
+
+# strip payout_date out of function
+def calc_IRR_stdev(loans, loan_fundings,
+             act_pay_monthly, act_pay_date,
+             plan_repaid, plan_pay,
+             act_pay_monthly_filter, act_pay_monthly_EOM_filter,
+             act_pay_date_filter,
+             plan_filter,
+             EOM_date, cash_keys):
+    # IRR
+    loan_principals_date = \
+        loan_fundings[
+            cash_keys + ['payout_date', 'dcf', 'payment']]
+
+    loan_payments_date=act_pay_date.loc[act_pay_date_filter,
+                    cash_keys + [ 'dcf', 'eur_payment_amount_investor_change']]\
+                .rename(columns={'eur_payment_amount_investor_change': 'payment'})
+
+    # Expected IRR
+    lpi_fields = ['iso_date', 'dwh_country_id', 'fk_loan',
+                  'fk_user_investor','interval']
+
+    latest_paid_interval_investor_date = \
+        act_pay_date.loc[act_pay_date_filter, lpi_fields]\
+        .sort('iso_date', inplace=False)\
+        .groupby(['dwh_country_id', 'fk_loan', 'fk_user_investor']).interval.last()
+    latest_paid_interval_investor_date.name='latest_paid_interval'
+    if plan_pay[plan_filter].shape[0]>0:
+
+        future_cashflows_date = \
+            make_future_pd(plan_pay[plan_filter],
+                           loans,
+                           EOM_date.date(),
+                           latest_paid_interval_investor_date,
+                           act_pay_monthly[act_pay_monthly_EOM_filter])
+        future_cashflows_date = \
+            calc_survival_investor_MC(future_cashflows_date)
+
+        expected_cashflows_date = \
+            future_cashflows_date[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_date = \
+            expected_cashflows_date.rename(columns={'e_tot': 'payment'})
+
+        future_cashflows_plan_pay = \
+            make_future_pd(plan_pay[plan_filter], loans)
+        future_cashflows_plan_pay = \
+            calc_survival_investor_MC(future_cashflows_plan_pay )
+
+        expected_cashflows_plan_pay = \
+            future_cashflows_plan_pay[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_plan_pay = \
+            expected_cashflows_plan_pay.rename(columns={'e_tot': 'payment'})
+
+
+        future_cashflows_plan_repaid = make_future_pd(
+                plan_repaid,
+                loans)
+        future_cashflows_plan_repaid = \
+            calc_survival_investor_MC(future_cashflows_plan_repaid )
+
+        expected_cashflows_plan_repaid = \
+            future_cashflows_plan_repaid[cash_keys + ['dcf', 'e_tot']].copy()
+        expected_cashflows_plan_repaid = \
+            expected_cashflows_plan_repaid.rename(columns={'e_tot': 'payment'})
+
+    else:
+        expected_cashflows_date=None
+
+    repaid_loans_cash = \
+        plan_repaid[ cash_keys +
+            ['interval_payback_date', 'dcf', 'eur_payment_amount_investor']]\
+        .rename(columns={'eur_payment_amount_investor':'payment'})
+
+
+    cash_list_expected_date =  drop_none([loan_principals_date,
+                                     loan_payments_date,
+                                     expected_cashflows_date,
+                                     repaid_loans_cash])
+
+    cash_list_expected_date_plan = drop_none([loan_principals_date,
+                                     expected_cashflows_plan_pay,
+                                     expected_cashflows_plan_repaid])
+
+
+    return {
             'cash_list_expected_date': cash_list_expected_date,
             'cash_list_expected_date_plan': cash_list_expected_date_plan
             }
