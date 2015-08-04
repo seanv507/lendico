@@ -3,103 +3,85 @@ require('RPostgreSQL')
 require("reshape2")
 require("lubridate")
 
-
-get_loans<-function(con_drv){
-  sql_loans="select  
-  l.*, 
-  gblrc.user_campaign, gblrc.credit_agency_score, gblrc.pd, gblrc.pd_original, gblrc.lgd, 
-  gblrc.in_arrears_since, gblrc.auto_in_arrears_since auto_in_arrears_since_g, gblrc.in_arrears_since_combined,
-  gblrc.date_of_first_loan_offer,
-  lp.payout_date,
-  gblrc.rating, gblrc.rating_mapped,
-  ranking.rating as ranking_rating, 
-  ranking.pd_start as ranking_pd_start, 
-	ranking.pd_end as ranking_pd_end,
-  pp.interval_payment,
-  lp.auto_in_arrears_since, lp.in_arrears_since in_arrears_since_man,
-  ac.net_income_precheck, ac.net_income, ac.expenses_precheck, ac.expenses, expenses_current_loans, ac.pre_capacity
-  from base.loan l 
-  join il.global_borrower_loan_requests_cohort gblrc 
-    on (l.dwh_country_id=gblrc.dwh_country_id and l.loan_nr=gblrc.loan_request_nr)
-  left join backend.ranking ranking on 
-    l.dwh_country_id=ranking.dwh_country_id and 
-	  l.fk_ranking=ranking.id_ranking
-  join base.loan_payback lp on 
-	  l.dwh_country_id=lp.dwh_country_id and 
-	  l.id_loan=lp.fk_loan
-  join base.loan_payment_plan pp 
-    on (l.dwh_country_id=pp.dwh_country_id and l.id_loan=pp.fk_loan) 
-  join base.user_account ac 
-    on (l.dwh_country_id=ac.dwh_country_id and l.fk_user=ac.id_user)
-  where l.dwh_country_id=1 and id_loan not in (3,4,6,8,11,14) 
-  and l.loan_nr not in   (94479925,182766269,312403183,345557011,379731992,421384595,509393088,546756655,727207610,11204373,142735577,765881911,803090308,895824248,650534649,382135828,556358891)
-  and l.state!='canceled'"
-  # either founder loans or lendico loans
-
-  #sql_loans_pps<-"select fk_loan,interval_payment from  base.loan_payment_plan where dwh_country_id=1"
-  #loan_pps<-dbGetQuery(con_drv[[1]],sql_loans_pps)
-  #loans_attribute_late2<-merge(loans_attribute_late2, loan_pps,by.x="id_loan",by.y="fk_loan")
-
-  #sql_user_cap<-"select id_user,ac.net_income, ac.expenses_without_loans,  ac.pre_capacity from  
-  #base.user_account ac where dwh_country_id=1"
-  #user_cap<-dbGetQuery(con_drv[[1]],sql_user_cap)
-  #loans_attribute_late2<-merge(loans_attribute_late2, user_cap,by.x="fk_user",by.y="id_user",all.x=T)
-  
-#   sql_loans_rating<- "select l.id_loan,l.loan_nr,l.fk_loan_request,gblrc.credit_agency_score, gblrc.pd, gblrc.pd_original, gblrc.lgd from base.loan l join il.global_borrower_loan_requests_cohort gblrc 
-# on (l.dwh_country_id=gblrc.dwh_country_id and l.loan_nr=gblrc.loan_request_nr)
-# where l.dwh_country_id=1 and id_loan not in (3,4,6,8,11,14) 
-# and l.loan_nr not in   (94479925,182766269,312403183,345557011,379731992,421384595,509393088,546756655,727207610,11204373,142735577,765881911,803090308,895824248,650534649,382135828,556358891)
-# and l.state!='canceled'"
-#   loans_rating<-dbGetQuery(con_drv[[1]],sql_loans_rating)
-#   loans_attribute_late2<-merge(loans_attribute_late,loans_rating[c("id_loan","credit_agency_score")], on="id_loan")
-#   loans_attribute_late2$credit_agency_score<-as.numeric(loans_attribute_late2$credit_agency_score)
-  
-  dbGetQuery(con_drv[[1]],sql_loans)  
-  
+read_string<-function(filename){
+  paste(readLines(filename), collapse="\n")
 }
 
+get_accounts<-function(con_drv,borrowers_str){
+  sql_borrowers=paste0("select * from  base.user_account  where dwh_country_id =1 and id_user in (",borrowers_str,
+                       ")",collapse=' ')
+  dbGetQuery(con_drv[[1]],sql_borrowers)
+}
 
-# sql_loans_rating<- "select l.id_loan,l.loan_nr,l.fk_loan_request,gblrc.credit_agency_score, gblrc.pd, gblrc.pd_original, gblrc.lgd from base.loan l join il.global_borrower_loan_requests_cohort gblrc 
-# on (l.dwh_country_id=gblrc.dwh_country_id and l.loan_nr=gblrc.loan_request_nr)
-# where l.dwh_country_id=1 and id_loan not in (3,4,6,8,11,14) 
-# and l.loan_nr not in   (94479925,182766269,312403183,345557011,379731992,421384595,509393088,546756655,727207610,11204373,142735577,765881911,803090308,895824248,650534649,382135828,556358891)
-# and l.state!='canceled'"
-# loans_rating<-dbGetQuery(con_drv[[1]],sql_loans_rating)
-
+# dwh_country_id" 
+# "country_name"
+# "currency_code"
+# "user_age"
+# "title"                   
+# "state"
+# "created_at"
+# "updated_at"
+# "dwh_created"
+# "dwh_last_modified"
+# "user_campaign"
+# "net_income_precheck"
+# "net_income"
+# "expenses_precheck"
+# "expenses"
+# "expenses_current_loans"
+# "pre_capacity"
+# "first_name"
+# "gender"
+# "last_name"
+# "loan_request_description"
+# "loan_request_title"
+# "marital_status"
+# "newsletter_subscription"
+# "postal_code"
+# "street"
+# "street_number"
+# "voucher_code"
 
 get_attributes<-function(con_drv,borrowers_str){
-  sql_user_attribute1=paste0("select dwh_country_id,max(id_attribute) id_attribute from  backend.user_attribute 
+  sql_user_attribute1=paste0(
+  "select 
+       dwh_country_id,max(id_attribute) id_attribute 
+   from  backend.user_attribute 
   
-                            where dwh_country_id=1 and fk_user in (",borrowers_str,
+   where dwh_country_id=1 and fk_user in (",borrowers_str,
                             ")  group by dwh_country_id, fk_user,key",collapse=' ')
-  sql_user_attribute=paste0("select ua.* from backend.user_attribute ua join (",sql_user_attribute1,") unis 
+  sql_user_attribute=paste0("select ua.dwh_country_id, ua.fk_user,ua.key,ua.value from backend.user_attribute ua join (",sql_user_attribute1,") unis 
                             on ua.id_attribute=unis.id_attribute and ua.dwh_country_id=unis.dwh_country_id",collapse=' ')
   borrower_attribute_narrow<-dbGetQuery(con_drv[[1]],sql_user_attribute)
-  # turn into wide format
-  borrower_attribute<-dcast(borrower_attribute_narrow, fk_user~key,value.var='value')
-  # remove new lines to paste into excel
-  borrower_attribute
+  
 }
 
-clean_attributes<-function(ba){
-  # converts to numbers/factors, 
-  # replaces ','->'.' (ie decimal point)
- # divides all amounts except 
-  # 
 
-  ba$loan_request_description<-gsub("\r\n","  ",ba$loan_request_description)
-
-  ba$user_income_employment_length_date<-
+clean_attributes<-function(baa){
+    # converts to numbers/factors, 
+    # replaces ','->'.' (ie decimal point)
+    # divides all amounts except child benefits
+    
+    # turn into wide format
+    ba<-dcast(baa, dwh_country_id+fk_user~key,value.var='value')
+    
+    # drop tile (always null and conflicts with loan title)
+    ba$title <- NULL
+    # remove new lines to paste into excel
+  
+    ba$loan_request_description<-gsub("\r\n","  ",ba$loan_request_description)
+    ba$user_income_description<-gsub("\r\n","  ",ba$user_income_description)
+    ba$user_income_employment_length_date<-
     floor_date(parse_date_time(ba$user_income_employment_length,
                                c("%m%y","Y%m%d","%d%m%Y")),"month")
-  #which(is.na(borrower_attribute$user_income_employment_length_date) & !is.na(borrower_attribute$user_income_employment_length))
-  ba$user_income_employment_length_date[ba$user_income_employment_length=="01.12.21985"]=ymd("19851201")
-  ba$user_income_employment_length_date[ba$user_income_employment_length=="2012-01-01.2012"]=ymd("20120101")  
-
-
-  # euros marks not cents as opposed to normal meaning of exchange rate
-
-  num_cols<-c(
+    #which(is.na(borrower_attribute$user_income_employment_length_date) & !is.na(borrower_attribute$user_income_employment_length))
+    ba$user_income_employment_length_date[ba$user_income_employment_length=="01.12.21985"]=ymd("19851201")
+    ba$user_income_employment_length_date[ba$user_income_employment_length=="2012-01-01.2012"]=ymd("20120101")  
+    
+    
+    # euros marks not cents as opposed to normal meaning of exchange rate
+    
+    num_cols<-c(
     "user_income_alimony", "user_income_business","user_income_child_benefit","user_income_net_income",
     "user_income_net_income2",
     "user_income_net_income_from_business",
@@ -110,31 +92,22 @@ clean_attributes<-function(ba){
      "user_expenses_children","user_expenses_home",
      "user_expenses_alimony","user_expenses_current_loans", "user_expenses_leasing",
      "user_expenses_monthly_mortgage","user_expenses_monthly_rent")
-  
-  # WARNING needed because MY R fails to parse ...
-  replace_comma<-function(x){gsub(",","",x)} #assumes if , then both digits (ie not 0,9 but 0,99)
- 
-  ba[,num_cols]<-lapply(ba[,num_cols],replace_comma)
-  ba[,num_cols]<-lapply(ba[,num_cols],as.numeric)
-  cents_cols<-num_cols[!(num_cols %in% c("user_income_child_benefit","user_expenses_children" ))]
-  ba[cents_cols]<-ba[cents_cols]/100
-  
-  # child benefit already in euros not cents
-  
-  facs<-c("marital_status","user_expenses_home","user_income_employment_status","user_income_employment_type")
-  ba[,facs]<-lapply(ba[,facs],as.factor)
-
-  ba
-
-  
+    
+    # WARNING needed because MY R fails to parse ...
+    replace_comma<-function(x){gsub(",","",x)} #assumes if , then both digits (ie not 0,9 but 0,99)
+    
+    ba[,num_cols]<-lapply(ba[,num_cols],replace_comma)
+    ba[,num_cols]<-lapply(ba[,num_cols],as.numeric)
+    cents_cols<-num_cols[!(num_cols %in% c("user_income_child_benefit","user_expenses_children" ))]
+    ba[cents_cols]<-ba[cents_cols]/100
+    
+    # child benefit already in euros not cents
+    
+    facs<-c("gender", "marital_status","user_expenses_home","user_income_employment_status","user_income_employment_type")
+    ba[,facs]<-lapply(ba[,facs],as.factor)
+    ba
 }
 
-get_accounts<-function(con_drv,borrowers_str){
-  
-  sql_borrowers=paste0("select * from  base.user_account  where dwh_country_id =1 and id_user in (",borrowers_str,
-                     ")",collapse=' ')
-  dbGetQuery(con_drv[[1]],sql_borrowers)
-}
 
 
 get_first_lates<-function(con_drv){
@@ -144,21 +117,25 @@ get_first_lates<-function(con_drv){
   ,in_arrears_since_days_7_plus_first
   ,in_arrears_since_days_14_plus_first 
   ,in_arrears_since_days_30_plus_first 
-  ,in_arrears_since_days_60_plus_first 
+  ,in_arrears_since_days_60_plus_first
+  ,in_arrears_since_days_90_plus_first 
   ,coalesce(in_arrears_since_days_7_plus_first,latest_date)-earliest_date as surv_time_7
   ,coalesce(in_arrears_since_days_14_plus_first,latest_date)-earliest_date as surv_time_14
   ,coalesce(in_arrears_since_days_30_plus_first,latest_date)-earliest_date as surv_time_30
   ,coalesce(in_arrears_since_days_60_plus_first,latest_date)-earliest_date as surv_time_60
-  ,in_arrears_since_days_7_plus_first is not null as surv_7
-  ,in_arrears_since_days_14_plus_first is not null as surv_14
-  ,in_arrears_since_days_30_plus_first is not null as surv_30
-  ,in_arrears_since_days_60_plus_first is not null as surv_60
+  ,coalesce(in_arrears_since_days_90_plus_first,latest_date)-earliest_date as surv_time_90
+  ,in_arrears_since_days_7_plus_first is not null as late_7
+  ,in_arrears_since_days_14_plus_first is not null as late_14
+  ,in_arrears_since_days_30_plus_first is not null as late_30
+  ,in_arrears_since_days_60_plus_first is not null as late_60
+  ,in_arrears_since_days_90_plus_first is not null as late_90
   FROM 
   (select  fk_loan, min(iso_date) earliest_date, max(iso_date) latest_date from base.de_payments  group by fk_loan) latest
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_7_plus_first from base.de_payments where in_arrears_since_days>7 group by fk_loan ) f7  on (latest.fk_loan=f7.fk_loan)
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_14_plus_first from base.de_payments where in_arrears_since_days>14 group by fk_loan ) f14 on (latest.fk_loan=f14.fk_loan)
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_30_plus_first from base.de_payments where in_arrears_since_days>30 group by fk_loan ) f30 on (latest.fk_loan=f30.fk_loan)
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_60_plus_first from base.de_payments where in_arrears_since_days>60 group by fk_loan ) f60 on (latest.fk_loan=f60.fk_loan)
+  left join (select  fk_loan, min(iso_date) in_arrears_since_days_90_plus_first from base.de_payments where in_arrears_since_days>90 group by fk_loan ) f90 on (latest.fk_loan=f90.fk_loan)
   order by fk_loan"
   
   dbGetQuery(con_drv[[1]],sql_first_lates)

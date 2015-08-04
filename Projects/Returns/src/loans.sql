@@ -1,10 +1,12 @@
 select 
 	l.*, 
 	left(l.rating,1) as rating_base,
+	gblrc.user_campaign,
 	gblrc.credit_agency_score, 
 	gblrc.pd, 
 	gblrc.pd_original, 
 	gblrc.lgd, 
+	
 	gblrc.in_arrears_since,
     gblrc.date_of_first_loan_offer,
     ranking.rating as ranking_rating, 
