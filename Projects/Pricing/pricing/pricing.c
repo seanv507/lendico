@@ -1,7 +1,7 @@
 #include <math.h>
 #include <malloc.h>
 
-typedef double TAmount;
+typedef int TAmount;
 int __stdcall calcSurvival(double *survival_rates, double * default_rates, int duration, double pd_year);
 double __stdcall polyval(double * coefficients, int n_coefficients, double x, int min_order);
 int __stdcall calcPayments(double * payments, double * survival_rates, double * default_rates, 
@@ -173,9 +173,11 @@ double nominal
 
 enum eResults{ e_duration = 0, e_rating = 1, e_amount = 2, e_base_rate = 3, e_service_fee = 4, e_borrower_fee = 5, e_right = 6, e_left = 7, e_last= 8, n_results_cols };
 
-int __stdcall calcRates(double * results, double * base_rates, double * borrower_fees, double * PD_mids, int n_ratings, int * durations, int n_durations, 
+int __stdcall calcRates(double * results, double * base_rates, double * borrower_fees, 
+	double * PD_mids, int n_ratings, int * durations, int n_durations, 
 	TAmount * amounts, int n_amounts, TAmount *rr_thresholds, double * recovery_rates, int n_recovery_rates,
-	double service_fee){
+	double service_fee,  int right_max_bp, int* p_nrows){
+	
 	int n_results_rows = n_ratings*n_durations*n_amounts;
 	int index, i_col, i, i_duration, i_rating, i_amount;
 	int duration;
@@ -255,14 +257,14 @@ int __stdcall calcRates(double * results, double * base_rates, double * borrower
 				else{
 					
 					results[index + n_results_rows*e_duration] = duration;
-					results[index + n_results_rows*e_rating] = i_rating;
+					results[index + n_results_rows*e_rating] = i_rating+1;
 					results[index + n_results_rows*e_amount] = amount;
 					results[index + n_results_rows*e_base_rate] = base_rate;
 					results[index + n_results_rows*e_service_fee] = service_fee;
 					results[index + n_results_rows*e_borrower_fee] = borrower_fee;
 					/* results(index, 1:6) = [d, PD, amounts(amount), base_rate, service_fee, borrower_fee];*/
 
-					i_right = 1700;  /* % 0.1700; */
+					i_right = right_max_bp;  /* in basis points 17%=1700 */
 					calcPayments(payments, survival_rates, default_rates, i_right, duration, amount, rr_thresholds, recovery_rates, n_recovery_rates);
 					if ((1 - service_fee) * polyval(payments, duration, df, 1) < 1){
 						break; /* % base rate, risk costs and service fee require nominal interest rate above 17 % -stop */
@@ -339,6 +341,7 @@ int __stdcall calcRates(double * results, double * base_rates, double * borrower
 				% output
 				dlmwrite(["pricing_" datestr(now, "yyyy-mm-dd HH-MM-SS") ".csv"], results(not(isna(results(:, 7))), :), ";", "precision", 5);
 				*/
+	*p_nrows = index;
 	free(payments);
 	free(survival_rates);
 	free(default_rates);
