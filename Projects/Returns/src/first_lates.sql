@@ -20,9 +20,15 @@ FROM  (
 		min(iso_date) earliest_date, 
 		max(iso_date) latest_date 
 	from 
-		base.de_payments  
+		base.de_payments p
+	join
+	    base.loan_payback lp
+	on
+	    p.dwh_country_id=lp.dwh_country_id
+	    p.fk_loan=lp.fk_loan
+	where lp.state <>'payback_complete'
 	group by 
-		fk_loan)
+		fk_loan
 ) latest
 
 left join (
