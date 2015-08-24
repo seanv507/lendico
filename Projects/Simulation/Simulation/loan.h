@@ -2,10 +2,11 @@
 #define LOAN_H
 
 #include <math.h>
+#include <iostream>
 
 enum LoanState {kLive, kPaidBack, kDefaulted, kUninit} ;
-enum LoanColumns { k_loan_id , k_duration , k_min_amount , k_max_amount, k_lendico_class, k_pd, k_nominal_rate, k_lender_fee, k_probability, k_counts, n_LoanColumns };
-// TODO 
+enum LoanColumns { k_loan_id , k_sme, k_duration , k_amount, k_lendico_class, k_lendico_class_base, k_pd, k_nominal_rate, k_lender_fee, k_probability, k_counts, n_LoanColumns };
+// TODO sme /base class/ LGD/ output portfolio
 const int kPeriod = 30;
 const int kDaysInYear = 360;
 const double kTau = kPeriod / float(kDaysInYear);
@@ -44,6 +45,7 @@ public:
 class Loan{
 public:
 	int id_;
+	bool is_sme_;
 	double bid_amount_;
 	double amount_;
 	int duration_;
@@ -59,13 +61,12 @@ public:
 	LoanState state_;
 	Loan() :state_(kUninit){};
 
-	Loan(int id, double bid_amount, double amount, int duration, double pd, double nominal_rate, double lender_fee) :
-		id_(id), bid_amount_(bid_amount), amount_(amount), duration_(duration), pd_(pd), nominal_rate_(nominal_rate), lender_fee_(lender_fee), start_(-1), end_(-1), state_(kUninit) {
+	Loan(int id, int is_sme, double bid_amount, double amount, int duration, double pd, double nominal_rate, double lender_fee) :
+		id_(id), is_sme_(is_sme), bid_amount_(bid_amount), amount_(amount), duration_(duration), pd_(pd), nominal_rate_(nominal_rate), lender_fee_(lender_fee), start_(-1), end_(-1), state_(kUninit) {
 		pd_monthly_ = 1-pow(1 - pd_, kTau);
 		q_ = (1 + nominal_rate_ * kTau);
 		installment_ = (q_ - 1) * pow(q_, duration_) / (pow(q_, duration) - 1);
 	}
-	operator <<
 
 	void set_state(LoanState state, int time=-1){
 		state_ = state;
@@ -97,7 +98,9 @@ public:
 		double frac = frac_remaining_borrower( time);
 		return (1 - lgd_.calc_loss(amount_ * frac))* bid_amount_;
 	}
+
+	static void print_header(std::ostream&);
 };
 
-
+std::ostream& operator<<(std::ostream& os, const Loan& loan);
 #endif
