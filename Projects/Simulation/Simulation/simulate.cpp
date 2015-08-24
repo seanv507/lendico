@@ -39,15 +39,13 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 	Loan * loan_categories = new Loan[n_loan_categories];
 	int * loan_category_counts = new int[n_loan_categories];
 	int * loan_category_counts_state = new int[n_loan_categories];
-	int * loan_category_min_amount = new int[n_loan_categories];
-	int * loan_category_max_amount = new int[n_loan_categories];
+	
 	double * loan_max_probability = new double[n_loan_categories]; // for selecting loans uniformly at random
 	for (int i = 0; i < n_loan_categories; i++){
-		loan_categories[i] = Loan(loan_category_table[i + n_loan_categories * k_loan_id], -1, -1, loan_category_table[i + n_loan_categories *k_duration],
+		loan_categories[i] = Loan(loan_category_table[i + n_loan_categories * k_loan_id], loan_category_table[i + n_loan_categories * k_sme] , -1, loan_category_table[i + n_loan_categories * k_amount], loan_category_table[i + n_loan_categories *k_duration],
 			loan_category_table[i + n_loan_categories *k_pd], loan_category_table[i + n_loan_categories *k_nominal_rate], loan_category_table[i + n_loan_categories *k_lender_fee]);
 		loan_category_counts[i] = loan_category_table[i + n_loan_categories * k_counts];
-		loan_category_min_amount[i] = loan_category_table[i + n_loan_categories * k_min_amount];
-		loan_category_max_amount[i] = loan_category_table[i + n_loan_categories * k_max_amount];
+
 		loan_max_probability[i] = loan_category_counts[i];
 		if (i > 0){
 			loan_max_probability[i] += loan_max_probability[i-1];

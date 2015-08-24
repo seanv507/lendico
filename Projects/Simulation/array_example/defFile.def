@@ -1,0 +1,3 @@
+LIBRARY "useArray"
+EXPORTS
+useArray = useArray

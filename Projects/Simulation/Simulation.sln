@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2013
-VisualStudioVersion = 12.0.31101.0
+# Visual Studio 14
+VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Simulation", "Simulation\Simulation.vcxproj", "{6B6BFDFA-D71C-4FE4-BACC-2D420E67707E}"
 EndProject
@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConsoleTest", "ConsoleTest\
 	ProjectSection(ProjectDependencies) = postProject
 		{6B6BFDFA-D71C-4FE4-BACC-2D420E67707E} = {6B6BFDFA-D71C-4FE4-BACC-2D420E67707E}
 	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "array_example", "array_example\array_example.vcxproj", "{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -43,6 +45,18 @@ Global
 		{27EC30BD-5D5B-46A8-A78C-EB91584790B8}.Release|Win32.ActiveCfg = Release|Win32
 		{27EC30BD-5D5B-46A8-A78C-EB91584790B8}.Release|Win32.Build.0 = Release|Win32
 		{27EC30BD-5D5B-46A8-A78C-EB91584790B8}.Release|x64.ActiveCfg = Release|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|Mixed Platforms.ActiveCfg = Debug|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|Mixed Platforms.Build.0 = Debug|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|Win32.ActiveCfg = Debug|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|Win32.Build.0 = Debug|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|x64.ActiveCfg = Debug|x64
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Debug|x64.Build.0 = Debug|x64
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|Mixed Platforms.ActiveCfg = Release|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|Mixed Platforms.Build.0 = Release|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|Win32.ActiveCfg = Release|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|Win32.Build.0 = Release|Win32
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|x64.ActiveCfg = Release|x64
+		{4BDCC3B9-2BC0-46F9-B59B-E2AAA7C91B32}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

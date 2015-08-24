@@ -15,19 +15,13 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="loan.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="investment.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+    <ClCompile Include="arrayFunc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="simulate.cpp">
+    <None Include="defFile.def">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="loan.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
+    </None>
   </ItemGroup>
 </Project>
