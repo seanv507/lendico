@@ -9,7 +9,7 @@ void Loan::print_header(std::ostream& os) {
 	os << "loan.start" << "\t";
 	os << "loan.end" << "\t";
 	os << "loan.nominal_rate" << "\t";
-	os << "loan.pd" << std::endl;
+	os << "loan.pd" << "\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Loan& loan){
@@ -21,7 +21,7 @@ std::ostream& operator<<(std::ostream& os, const Loan& loan){
 	os << loan.start_ << "\t";
 	os << loan.end_ << "\t";
 	os << loan.nominal_rate_ << "\t"; 
-	os << loan.pd_ << std::endl;
+	os << loan.pd_ << "\n";
 
 	return os;
 }

@@ -5,7 +5,9 @@
 #include <iostream>
 
 enum LoanState {kLive, kPaidBack, kDefaulted, kUninit} ;
-enum LoanColumns { k_loan_id , k_sme, k_duration , k_amount, k_lendico_class, k_lendico_class_base, k_pd, k_nominal_rate, k_lender_fee, k_probability, k_counts, n_LoanColumns };
+enum LoanColumns { k_loan_id ,k_sme, k_lendico_class, k_duration , k_amount,  k_lendico_class_base, k_pd,
+	k_lgd_amount1, k_lgd_amount2, k_lgd_amount3, k_lgd_value1, k_lgd_value2, k_lgd_value3,
+	k_nominal_rate, k_lender_fee, k_probability, k_counts, n_LoanColumns };
 // TODO sme /base class/ LGD/ output portfolio
 const int kPeriod = 30;
 const int kDaysInYear = 360;
@@ -30,6 +32,15 @@ public:
 			amounts_[i]=amounts_losses[i];
 			losses_[i] = amounts_losses[i + kNAmounts];
 		}
+	}
+	LGD(double amount1, double amount2, double amount3, double value1, double value2, double value3) {
+		
+		amounts_[0] = amount1;
+		amounts_[1] = amount2;
+		amounts_[2] = amount3;
+		losses_[0] = value1;
+		losses_[1] = value2;
+		losses_[2] = value3;
 	}
 
 	double calc_loss(double amount){
@@ -61,8 +72,8 @@ public:
 	LoanState state_;
 	Loan() :state_(kUninit){};
 
-	Loan(int id, int is_sme, double bid_amount, double amount, int duration, double pd, double nominal_rate, double lender_fee) :
-		id_(id), is_sme_(is_sme), bid_amount_(bid_amount), amount_(amount), duration_(duration), pd_(pd), nominal_rate_(nominal_rate), lender_fee_(lender_fee), start_(-1), end_(-1), state_(kUninit) {
+	Loan(int id, int is_sme, double bid_amount, double amount, int duration, double pd, const LGD& lgd, double nominal_rate, double lender_fee) :
+		id_(id), is_sme_(is_sme), bid_amount_(bid_amount), amount_(amount), duration_(duration), pd_(pd), lgd_(lgd), nominal_rate_(nominal_rate), lender_fee_(lender_fee), start_(-1), end_(-1), state_(kUninit) {
 		pd_monthly_ = 1-pow(1 - pd_, kTau);
 		q_ = (1 + nominal_rate_ * kTau);
 		installment_ = (q_ - 1) * pow(q_, duration_) / (pow(q_, duration) - 1);
@@ -73,7 +84,7 @@ public:
 		switch (state){
 		case kLive:
 			start_ = time;
-			end_ = start_ + duration_;
+			end_ = start_ + 1 + duration_;
 			break;
 
 		case kDefaulted:
@@ -90,13 +101,13 @@ public:
 		if (state_ != kLive) { return 0; 
 		}
 		else{
-			return (pow(q_, duration_) - pow(q_, time - start_)) / (pow(q_, duration_) - 1);
+			return (pow(q_, duration_) - pow(q_, time - start_ -1)) / (pow(q_, duration_) - 1);
 		}
 	}
 
 	double recover(int time){
 		double frac = frac_remaining_borrower( time);
-		return (1 - lgd_.calc_loss(amount_ * frac))* bid_amount_;
+		return (1 - lgd_.calc_loss(amount_ * frac))* frac * bid_amount_;
 	}
 
 	static void print_header(std::ostream&);
