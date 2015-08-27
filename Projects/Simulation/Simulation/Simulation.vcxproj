@@ -24,6 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="loan.cpp" />
+    <ClCompile Include="pricing.c" />
     <ClCompile Include="simulate.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

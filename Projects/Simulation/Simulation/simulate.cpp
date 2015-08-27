@@ -19,25 +19,11 @@ typedef std::vector<Loan> LoanList;
 https://msdn.microsoft.com/en-us/library/zxk0tw93(v=vs.140).aspx
 */
 
-extern "C"  __declspec(dllexport) int __stdcall times(int x, double y){
-	return x*y;
-}
 
 
-extern "C" __declspec(dllexport) int square(int ny, double * y){
-	for (int i = 0; i < ny; i++){
-		y[i] *= y[i];
-	}
-	return 0;
-}
-
-
-
-extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest, int max_investment_per_loan, int seed,
+extern "C" __declspec(dllexport)  int __stdcall simulate( int n_paths, int days_to_invest, int max_investment_per_loan, int seed,
 		int n_loan_categories, double * loan_category_table,
-		double SME_proportion,
-		int n_durations_SME, int n_ratings_base_SME, double * SME_duration_rating,
-		int n_durations_consumer, int n_ratings_base_consumer, double* consumer_duration_rating,
+		double SME_proportion, double early_repayment_monthly,
 		int n_periods, double * period_table, double * payments, double * epsilon){
 	// init loan categories
 	Loan * loan_categories = new Loan[n_loan_categories];
@@ -83,7 +69,7 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 	double loan_paybacks;
 	double loan_payback;
 	
-	std::default_random_engine generator;
+	std::default_random_engine generator(seed);
 	std::uniform_real_distribution<double> distribution(0.0, 1.0);
 	std::uniform_int_distribution<int> uniform_categories_distribution(0, n_loan_categories-1);
 
@@ -106,8 +92,9 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 			for (int i_loan = 0; i_loan < loans.size(); i_loan++){
 				Loan * l = &loans[i_loan];
 				if (l->state_ == kLive){
-					double urand=distribution(generator);
-					if (urand < l->pd_monthly_) {
+					bool is_default = (distribution(generator) < l->pd_monthly_);
+					
+					if (is_default) {
 						loan_payback = l->recover(i_period); // has to be called before set state to defaulted
 						l->set_state(kDefaulted, i_period);
 					}
@@ -121,7 +108,18 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 							loan_payback = l->bid_amount_ * l->installment_;
 							if (i_period - l->start_ - 1 == l->duration_){
 								// index ??
-								l->state_ = kPaidBack;
+								l->set_state(kPaidBack, i_period);
+							}
+							else {
+								bool is_early = (distribution(generator) < early_repayment_monthly);
+								if (is_early){
+									double remaining_principal = l->bid_amount_ * l->frac_remaining_borrower(i_period + 1);
+									loan_payback += remaining_principal / (1 - l->lender_fee_);
+									// we take lender fee only on installment and not on remaining principal
+									// why is lender fee part of loan object?? 
+									l->set_state(kPaidBack,i_period);
+								}
+
 							}
 						}
 					}
@@ -131,7 +129,6 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 			// calculate money to invest
 			// calculate payments
 			Period * p = &periods[i_period];
-			
 			
 			if (!p->reinvest_){
 				money_to_invest = p->fresh_money_;
@@ -149,7 +146,7 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 			while (money_to_invest >= kMinimumInvestment){
 
 				double urand = distribution(generator);
-				int i_loan_category = std::upper_bound(&loan_max_probability[0], &loan_max_probability[n_loan_categories], urand) - &loan_max_probability[0];
+				int i_loan_category = int(std::upper_bound(&loan_max_probability[0], &loan_max_probability[n_loan_categories], urand) - &loan_max_probability[0]);
 
 				//int i_loan_category = uniform_categories_distribution(generator);
 				Loan * l = &loan_categories[i_loan_category];
@@ -194,8 +191,21 @@ extern "C" __declspec(dllexport)  int  simulate( int n_paths, int days_to_invest
 	return 0;
 }
 
+extern "C"  __declspec(dllexport) int __stdcall times(int x, double y) {
+	return x*y;
+}
 
-extern "C" __declspec(dllexport)  int  dummy(int n_paths, int days_to_invest, int max_investment_per_loan, int seed,
+
+extern "C" __declspec(dllexport) int __stdcall square(int ny, double * y) {
+	for (int i = 0; i < ny; i++) {
+		y[i] *= y[i];
+	}
+	return 0;
+}
+
+
+
+extern "C" __declspec(dllexport)  int  __stdcall dummy(int n_paths, int days_to_invest, int max_investment_per_loan, int seed,
 	int n_loan_categories, double * loan_category_table,
 	int n_periods, double * period_table, double * payments
 	){

@@ -29,5 +29,8 @@
     <ClCompile Include="loan.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="pricing.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include <iostream>
+#include <algorithm>
 
 enum LoanState {kLive, kPaidBack, kDefaulted, kUninit} ;
 enum LoanColumns { k_loan_id ,k_sme, k_lendico_class, k_duration , k_amount,  k_lendico_class_base, k_pd,
@@ -98,10 +99,13 @@ public:
 	}
 	
 	double frac_remaining_borrower(int time){
+		// frac remaining to be paid at beginning of period 2
 		if (state_ != kLive) { return 0; 
 		}
 		else{
-			return (pow(q_, duration_) - pow(q_, time - start_ -1)) / (pow(q_, duration_) - 1);
+			// start=0, vorlaufzins =1, and full inst =2
+			int full_installments_paid = std::max(time - 2 - start_ ,0);
+			return (pow(q_, duration_) - pow(q_, full_installments_paid)) / (pow(q_, duration_) - 1);
 		}
 	}
 
