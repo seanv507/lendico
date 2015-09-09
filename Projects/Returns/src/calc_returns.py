@@ -16,7 +16,8 @@ def lose_guaranteed_offer(table, lf):
 
 
 #EOM_dates=pd.date_range('2014-04-01', '2015-06-30', freq='M')
-EOM_dates=pd.date_range('2015-01-01', '2015-06-30', freq='M')
+#EOM_dates=pd.date_range('2015-01-01', '2015-08-30', freq='M')
+EOM_dates=pd.date_range('2015-07-01', '2015-08-31', freq='M')
 
 minimum_vintage=pd.tseries.offsets.MonthEnd(3)
 pd.DataFrame({'d':EOM_dates,'e':EOM_dates -minimum_vintage})
@@ -178,49 +179,50 @@ for EOM_date in selected_reporting_dates:
 
         xirrs_all_list[split].append(xirrs[split])
 
-    seed=42
-    #np.random.seed(seed)
-    n_runs=50
-    for run in range(n_runs):
-        cash_lists=calc_IRR_stdev(loans_base,
-                                  loan_fundings_filtered,
-                                  act_pay_monthly_base, act_pay_date_base,
-                                  plan_repaid_filtered,
-                                  plan_pay_base,
-                                  act_pay_monthly_filter, 
-                                  act_pay_monthly_EOM_filter,
-                                  act_pay_date_filter,
-                                  plan_filter,
-                                  EOM_date, cash_keys)
-
-        cash_lists = {key:
-                  [drop_merge(cash, loans_base, loan_keys, loan_fields) for
-                        cash in cash_list]
-                  for (key, cash_list) in cash_lists.iteritems()}
-
-        xirrs_overall_seed, xirrs_seed =  \
-            calc_IRR_groups(EOM_date, splits, cash_lists, 
-                            actual_payments_monthly_base)
-        xirrs_overall_seed['run']=run
-        xirrs_overall_seed_list.append(xirrs_overall_seed)
-
-        for split in splits :
-            xirrs_seed[split]['run']=run
-            xirrs_seed[split].set_index('run', append=True)
-            xirrs_seed_all_list[split].append(xirrs_seed[split])
+#    seed=42
+#    #np.random.seed(seed)
+#    n_runs=50
+#    for run in range(n_runs):
+#        cash_lists=calc_IRR_stdev(loans_base,
+#                                  loan_fundings_filtered,
+#                                  act_pay_monthly_base, act_pay_date_base,
+#                                  plan_repaid_filtered,
+#                                  plan_pay_base,
+#                                  act_pay_monthly_filter, 
+#                                  act_pay_monthly_EOM_filter,
+#                                  act_pay_date_filter,
+#                                  plan_filter,
+#                                  EOM_date, cash_keys)
+#
+#        cash_lists = {key:
+#                  [drop_merge(cash, loans_base, loan_keys, loan_fields) for
+#                        cash in cash_list]
+#                  for (key, cash_list) in cash_lists.iteritems()}
+#
+#        xirrs_overall_seed, xirrs_seed =  \
+#            calc_IRR_groups(EOM_date, splits, cash_lists, 
+#                            actual_payments_monthly_base)
+#        xirrs_overall_seed['run']=run
+#        xirrs_overall_seed_list.append(xirrs_overall_seed)
+#
+#        for split in splits :
+#            xirrs_seed[split]['run']=run
+#            xirrs_seed[split].set_index('run', append=True)
+#            xirrs_seed_all_list[split].append(xirrs_seed[split])
+#dup_selected_reporting_dates = [d for d in selected_reporting_dates for i in range(n_runs)]
+#xirrs_overall_seed=pd.DataFrame.from_records(data=xirrs_overall_seed_list, \
+#                                        index=dup_selected_reporting_dates)
+#for split in splits :    
+#    xirrs_seed_all[split] = pd.concat( xirrs_seed_all_list[split], 
+#                                      keys=zip(dup_selected_reporting_dates, 
+#                                               range(n_runs)*
+#                                               len(selected_reporting_dates)),
+#                                     names=['reporting_date','run'])
 
 
 xirrs_overall=pd.DataFrame.from_records(data=xirrs_overall_list, \
                                         index=selected_reporting_dates)
 
-dup_selected_reporting_dates = [d for d in selected_reporting_dates for i in range(n_runs)]
-xirrs_overall_seed=pd.DataFrame.from_records(data=xirrs_overall_seed_list, \
-                                        index=dup_selected_reporting_dates)
+
 for split in splits :
     xirrs_all[split] = pd.concat( xirrs_all_list[split], keys=selected_reporting_dates)
-    
-    xirrs_seed_all[split] = pd.concat( xirrs_seed_all_list[split], 
-                                      keys=zip(dup_selected_reporting_dates, 
-                                               range(n_runs)*
-                                               len(selected_reporting_dates)),
-                                     names=['reporting_date','run'])

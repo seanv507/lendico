@@ -14,6 +14,7 @@ import pandas.io.sql as psql
 import pandas as pd
 import sys
 import xml.etree.ElementTree as ET
+
 from bs4 import BeautifulSoup
 import json
 import requests
@@ -322,9 +323,23 @@ def parse_indebt_table(html):
     td_value=[re.sub(u'[.%]','',td) for td in td_value]
     td_value=[re.sub(',','.',td) for td in td_value]
     data=dict(zip(td_key,td_value))
-    del data['']
+    if '' in data:
+        # key error if no indebtedness calc...
+        del data['']
     
     return data
+    
+def use_dot_decimal(text):
+    """ remove euro sign, remove . and % and then replace commma with '.'
+        in indebtedness % is wrong whereas in capacity it really does mean %    
+    """
+    
+    text = re.sub(u' \u20ac','',text)
+    # deal with %
+    text=re.sub(u'[ \n.%]','',text)
+    text=re.sub(',','.',text)
+    return text
+
 
 def get_web_indebtedness(id_loan_requests):
     indebt_addr = 'https://admin.lendico.de/admin/loan-request/display-indebtedness-details/'   
@@ -352,4 +367,93 @@ def get_web_indebtedness(id_loan_requests):
         if c != 'CreditWorthy?':
             df[c]=df[c].astype(np.float)
     return df            
+
+def parse_capacity_tables(html):
+    """ returns dictionary from capacity tables to create row in dataframe"""
+    key_values = {}
+    soup = BeautifulSoup(html, "html")
+    tables = soup.findAll('table', {'class': 'table table-condensed'})
+    for table in tables:
+        table_head = table.find('thead')
+        # could be single row capacity etc
+        if table_head is not None:
+            table_name = table_head.find('th').text
+            table_body = table.find('tbody')
+            table_total = table_body.findAll('th')
+            if len(table_total) > 0:
+                table_total = table_total[1].text
+                table_total = use_dot_decimal(table_total)
+                key_values[table_name + ':total'] = table_total
+            table_rows = table_body.findAll('tr')
+            for table_row in table_rows:
+                row_data = table_row.findAll('td')
+                if len(row_data) > 0:   
+                    key = table_name + ':' + row_data[0].text
+                    value = row_data[1].text
+                    # convert from german decimal
+                    value = use_dot_decimal(value)
+                    key_values[key] = value
+    return key_values
+
+
+def get_web_capacity(id_loan_requests):
     
+    capacity_addr = 'https://admin.lendico.de/admin/loan-request/capacity-calculator/details/'   
+    data=[]
+    
+    payload={'_username':'sean.violante@lendico.de',
+         '_password': '7642lottA!!',
+        'login':'Login'}
+
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    with requests.Session() as s:
+        s.auth=('lendico_beta', 'p2pLend4every1')
+        r1 = s.get('https://admin.lendico.de/admin')
+        p = s.post('https://admin.lendico.de/admin/login_check', headers=headers, data=payload)
+        
+        for  id_loan_request in id_loan_requests:            
+            r = s.get(capacity_addr + str(id_loan_request))
+            data_row = parse_capacity_tables(r.text)
+            data_row['id_loan_request'] = id_loan_request
+            data.append(data_row)
+    df =pd.DataFrame.from_records(data,index='id_loan_request')
+    
+    return df
+
+def get_issued_loans(con):
+    sql="""select fk_loan_request, loan_nr, id_loan, 
+        fk_user,  user_campaign, last_name,first_name
+            from 
+                base.loan l
+            join base.user_account ua on
+                l.dwh_country_id=ua.dwh_country_id and
+                l.fk_user=ua.id_user                
+            where 
+                l.dwh_country_id=1 and 
+                l.state<>'canceled' and
+                ua.user_type='regular_user'
+                """
+    df=pd.read_sql_query(sql,con)
+    return df
+    
+def get_issued_loans_gblrc(con):
+    sql="""
+    select gblrc.* from
+        base.loan l
+    join     
+        il.global_borrower_loan_requests_cohort gblrc 
+    on
+        l.dwh_country_id=gblrc.dwh_country_id and
+        l.loan_nr=gblrc.loan_request_nr                
+    join 
+        base.user_account ua 
+    on
+        l.dwh_country_id=ua.dwh_country_id and
+        l.fk_user=ua.id_user                
+    where 
+        l.dwh_country_id=1 and 
+        l.state<>'canceled' and
+        ua.user_type='regular_user'
+                """
+    df=pd.read_sql_query(sql,con)
+    return df
