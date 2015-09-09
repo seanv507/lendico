@@ -27,16 +27,33 @@ summary_reals<-function(dt, target,real_vars){
   setnames(df_sum,'get',target)
 }
 
-summary_factors<-function(dt, target,factor_vars){
+summary_factors<-function(dt, target,factor_vars, add_var=NULL){
   # calc N, mean, std err
+    if (is.null(add_var)){
+        list_sum<-lapply(factor_vars,
+                         function (f) dt[,.(fact=f, 
+                                            N=.N, 
+                                            rate=sum(get(target)==1)/.N, 
+                                            std_err=sqrt(sum(get(target)==1)*(.N-sum(get(target)==1))/.N^3)),
+                                         keyby=f])
+        
+        
+    }else{
+        # couldn't get to work - eval problem? 
+        # The items in the 'by' or 'keyby' list are length (1,1). Each must be same length as rows in x
+        list_sum<-lapply(factor_vars,
+                         function (f) dt[,.(fact=f, 
+                                            N=.N, 
+                                            rate=sum(get(target)==1)/.N, 
+                                            std_err=sqrt(sum(get(target)==1)*(.N-sum(get(target)==1))/.N^3)),
+                                         keyby=.(add_var,f)])
+    }
   
-  list_sum<-lapply(factor_vars,function (f) dt[,.(fact=f, N=.N, rate=sum(get(target)==1)/.N, 
-                                                  std_err=sqrt(sum(get(target)==1)*(.N-sum(get(target)==1))/.N^3)),keyby=f])
-  
-  # create combined dataframe by adding column with variable name
-  for (i in 1:length(factor_vars))   setnames(list_sum[[i]], factor_vars[i], 'value')
-  df_sum<-do.call(rbind,list_sum)
-  setcolorder(df_sum,c('fact','value', 'N', 'rate', 'std_err'))
+    
+    # create combined dataframe by adding column with variable name
+    for (i in 1:length(factor_vars))   setnames(list_sum[[i]], factor_vars[i], 'value')
+    df_sum<-do.call(rbind,list_sum)
+    setcolorder(df_sum,c('fact','value', 'N', 'rate', 'std_err'))
 }
 
 summary_factors_p<-function(dt, target,factor_vars){

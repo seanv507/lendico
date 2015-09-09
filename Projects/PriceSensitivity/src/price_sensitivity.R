@@ -9,6 +9,8 @@ cancel_reasons_str<-read_string('cancel_reasons.sql')
 cancel_reasons<-dbGetQuery(con_drv[[1]],cancel_reasons_str)
 
 cols<-c(
+    "principal_amount",
+    "duration",
     "documents_activity_flag",
     "lendico_class_new",
     "event_month",
@@ -30,6 +32,7 @@ sensdata$employment_length_years_bucket<- cut(sensdata$employment_length_years, 
 sensdata_dt=data.table(sensdata)
 facs<-c(
     "event_month",
+    "duration",
     "amount_bucket",
     "user_campaign",
     "rating",
@@ -41,9 +44,23 @@ facs<-c(
     "employment_length_years_bucket"
 )
 
+facs1<-c(
+    "amount_bucket",
+    "user_campaign",
+    "rating",
+    "income_employment_status",
+    "credit_agency_rating",
+    "lendico_class",
+    "rating_new",
+    "user_age_bucket",
+    "employment_length_years_bucket"
+)
+
+    
 target_var<-"documents_activity_flag"
 rate_overall<-calc_rate_overall(sensdata_dt, target_var)
 sens_factors_df<-summary_factors(sensdata_dt, target_var,facs)
+sens_factors_change_df<-summary_factors(sensdata_dt[event_month %in% c('2015_02', '2015_03', '2015_04')], target_var,facs1, "event_month")
 
 filename='sensitivity'
 

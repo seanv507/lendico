@@ -3,9 +3,8 @@ require('RPostgreSQL')
 require("reshape2")
 require("lubridate")
 
-read_string<-function(filename){
-  paste(readLines(filename), collapse="\n")
-}
+
+
 
 get_accounts<-function(con_drv,borrowers_str){
   sql_borrowers=paste0("select * from  base.user_account  where dwh_country_id =1 and id_user in (",borrowers_str,
@@ -89,7 +88,7 @@ clean_attributes<-function(baa){
     "user_income_net_income_pension",
     "user_income_pension","user_income_rent",
     "user_expenses_health_insurance",
-     "user_expenses_children","user_expenses_home",
+     "user_expenses_children",
      "user_expenses_alimony","user_expenses_current_loans", "user_expenses_leasing",
      "user_expenses_monthly_mortgage","user_expenses_monthly_rent")
     
@@ -130,12 +129,21 @@ get_first_lates<-function(con_drv){
   ,in_arrears_since_days_60_plus_first is not null as late_60
   ,in_arrears_since_days_90_plus_first is not null as late_90
   FROM 
-  (select  fk_loan, min(iso_date) earliest_date, max(iso_date) latest_date from base.de_payments  group by fk_loan) latest
+  (select  p.fk_loan, min(iso_date) earliest_date, max(iso_date) latest_date from base.de_payments  p
+    join
+	    base.loan_payback lp
+    on
+        p.dwh_country_id=lp.dwh_country_id and 
+        p.fk_loan=lp.fk_loan
+    where lp.state <>'payback_complete'
+
+
+group by p.fk_loan) latest
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_7_plus_first from base.de_payments where in_arrears_since_days>7 group by fk_loan ) f7  on (latest.fk_loan=f7.fk_loan)
   left join (select  fk_loan, min(iso_date) in_arrears_since_days_14_plus_first from base.de_payments where in_arrears_since_days>14 group by fk_loan ) f14 on (latest.fk_loan=f14.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_30_plus_first from base.de_payments where in_arrears_since_days>30 group by fk_loan ) f30 on (latest.fk_loan=f30.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_60_plus_first from base.de_payments where in_arrears_since_days>60 group by fk_loan ) f60 on (latest.fk_loan=f60.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_90_plus_first from base.de_payments where in_arrears_since_days>90 group by fk_loan ) f90 on (latest.fk_loan=f90.fk_loan)
+  left join (select  fk_loan, min(iso_date) in_arrears_since_days_30_plus_first from base.de_payments where in_arrears_since_days>31 group by fk_loan ) f30 on (latest.fk_loan=f30.fk_loan)
+  left join (select  fk_loan, min(iso_date) in_arrears_since_days_60_plus_first from base.de_payments where in_arrears_since_days>62 group by fk_loan ) f60 on (latest.fk_loan=f60.fk_loan)
+  left join (select  fk_loan, min(iso_date) in_arrears_since_days_90_plus_first from base.de_payments where in_arrears_since_days>93 group by fk_loan ) f90 on (latest.fk_loan=f90.fk_loan)
   order by fk_loan"
   
   dbGetQuery(con_drv[[1]],sql_first_lates)
