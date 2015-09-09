@@ -34,7 +34,7 @@ from
   ,blrc.user_campaign
   ,left(blrc.rating,1) lendico_class
   ,left(blrc.rating_mapped,1) lendico_class_new
-  ,rating
+  ,blrc.rating
   ,blrc.global_dwh_state
   ,blrc.country
   ,blrc.id_loan_request
@@ -57,11 +57,15 @@ from
   ,blrc.contract_was_accepted_flag
   ,blrc.was_funds_collected_flag
   ,blrc.was_payout_complete_flag
+  ,l.principal_amount
+  ,l.duration
   ,rating_new
   ,ranking.rating ranking_rating
   ,ranking.pd_start ranking_pd_start
+  ,ranking.total_rate ranking_total_rate
   ,ranking.targeted_yield ranking_targeted_yield
-  ,ranking.valid_from ranking_valid_to
+  ,ranking.valid_from ranking_valid_from
+  ,ranking.valid_till ranking_valid_till
   ,in_arrears_since_combined as in_arrears_since
   ,income_employment_status
   ,user_age
@@ -113,5 +117,6 @@ from
  where blrc.user_type in ('rocket_lendico', 'regular_user') 
  and blrc.event_date >= '2013-12-01'
  AND blrc.sme_flag = 0
+ AND blrc.dwh_country_id = 1
  ) x
 order by 3,6--1,2,3 ,4 --232036
