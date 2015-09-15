@@ -4,6 +4,7 @@ import pandas as pd
 import datetime
 import scipy.optimize
 import os
+import dwh
 
 # todo actual date
 # loan_funding dcf_EOM vs dcf normal
@@ -49,9 +50,7 @@ def get_sql_strings():
             'loan_fundings',
             'loans']
     for sql_name in sqls:
-        with open(src_dir + '\\' + sql_name + '.sql') as sqf:
-            sql = sqf.read()
-            sql_dict[sql_name] = sql
+        sql_dict[sql_name] = dwh.read_sql_str(sql_name,dir_name=src_dir, ext='.sql')
 
     return sql_dict
 

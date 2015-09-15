@@ -3,7 +3,10 @@ require('survival')
 require('plyr')
 require('stringr')
 
+
 # NEED TO SET WORKING DIRECTORY
+setwd("~/Projects/lendico/Projects/Returns/src")
+
 source('../../../lib/read_postgresql.R')
 
 con_drv=get_con()
@@ -29,31 +32,51 @@ borrower_ids<-unique(lendi_loans$fk_user)
 borrowers_str<-paste(borrower_ids, collapse=',')
 borrowers<-get_accounts(con_drv,borrowers_str)
 
-intersect(names(lendi_loans), names(borrowers))
-# state different and date fields 
 
 borrower_attribute<-get_attributes(con_drv,borrowers_str)
 # attributes takes long to load!!
 borrower_attribute1<-clean_attributes(borrower_attribute)
 
+web_indebtedness=read.csv('../../Underwriting/src/web_indebtedness.csv')
+
+first_lates<-dbGetQuery(con_drv[[1]],read_string('first_lates.sql'))
+first_lates_EOM<-dbGetQuery(con_drv[[1]],read_string('first_lates_EOM.sql'))
+
+#merge data
+
+intersect(names(lendi_loans), names(borrowers))
+# state different and date fields 
+#"dwh_country_id"    "country_name"      "currency_code"     "user_age"          "state"             "created_at"       
+# [7] "updated_at"        "dwh_created"       "dwh_last_modified" "user_campaign"   
+
+
 #left join
 intersect(names(lendi_loans), names(borrower_attribute1))
-
 # no duplicates
+#"dwh_country_id" "fk_user"   
 loans_attribute<-merge(x = lendi_loans, y = borrower_attribute1, by = c("dwh_country_id","fk_user"), all.x=TRUE)
 
-loans_attribute$user_income_employment_length_months<-
-  interval(loans_attribute$user_income_employment_length_date,loans_attribute$loan_request_creation_date)/months(1)
-intersect(names(lendi_loans), names(borrowers))
+
 # we add account to the shared variable names - some are duplicates
 loans_account_attribute<-merge(x=loans_attribute,y=borrowers,by.x=c("dwh_country_id","fk_user"),by.y=c("dwh_country_id","id_user"),
                                suffixes=c('','.account'))
 
 
-first_lates<-get_first_lates(con_drv)
-loans_account_attribute_lates<-merge(x=loans_account_attribute,y=first_lates,by.x="id_loan",by.y="fk_loan")
-web_indebtedness=read.csv('../../indebtedness/src/web_indebtedness.csv')
-loans_account_attribute_lates_indebt<-merge(x=loans_account_attribute_lates,
+loans_account_attribute$total_net_income<-total_net_income_it(loans_account_attribute)
+
+drop_id_columns=c('loan_request_nr','fk_loan_request')
+loans_account_attribute_lates<-merge(
+    x=loans_account_attribute,
+    y=first_lates[,!(names(first_lates) %in% drop_id_columns)],
+    by.x="id_loan",
+    by.y="fk_loan")
+loans_account_attribute_lates_lates_EOM<-merge(
+    x=loans_account_attribute_lates,
+    y=first_lates_EOM[,!(names(first_lates_EOM) %in% drop_id_columns)],
+    by.x="id_loan",
+    by.y="fk_loan")
+
+loans_account_attribute_lates_lates_EOM_indebt<-merge(x=loans_account_attribute_lates_lates_EOM,
                                             y=web_indebtedness,
                                             by.x="fk_loan_request",
                                             by.y="id_loan_request",
@@ -63,7 +86,7 @@ loans_account_attribute_lates_indebt<-merge(x=loans_account_attribute_lates,
 write.csv(first_lates,file('clipboard-256'))
 
 
-loans_account_attribute_lates$total_net_income<-total_net_income_it(loans_account_attribute_lates)
+
 
 sql_loan_arrears<-read_string('loan_arrears.sql')
 loan_arrears<-dbGetQuery(con_drv[[1]],sql_loan_arrears)
@@ -113,9 +136,20 @@ write.csv(a,file('clipboard-128'))
 
 
 
-my.fit<-survfit(Surv(loans_account_attribute_lates$surv_time_90, loans_account_attribute_lates$late_90)
-                       ~1)
+
+my.fit<-survfit(Surv(surv_time_90, late_90) ~1)
 capture.output(summary(my.fit),file=file('clipboard-128'))
+
+my.fit.EOM<-survfit(Surv(surv_time_90_eom, late_90_eom) ~1)
+capture.output(summary(my.fit.EOM),file=file('clipboard-128'))
+
+
+surv.fit_EOMS<-lapply(payout_date_m,function(payout_before) {survfit(Surv(surv_time_90_eom[payout_date<as.POSIXct(payout_before)], late_90_eom[payout_date<as.POSIXct(payout_before)]) ~1)})
+names(surv.fit_EOMS)<-payout_date_m
+
+
+
+
 
 my.fit.gender<-survfit(Surv(loans_account_attribute_lates$surv_time_90, loans_account_attribute_lates$late_90)
                        ~loans_account_attribute_lates$gender_f)

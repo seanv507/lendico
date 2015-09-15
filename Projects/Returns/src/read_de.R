@@ -77,6 +77,8 @@ clean_attributes<-function(baa){
     ba$user_income_employment_length_date[ba$user_income_employment_length=="01.12.21985"]=ymd("19851201")
     ba$user_income_employment_length_date[ba$user_income_employment_length=="2012-01-01.2012"]=ymd("20120101")  
     
+    ba$user_income_employment_length_months<-
+        interval(ba$user_income_employment_length_date,ba$loan_request_creation_date)/months(1)
     
     # euros marks not cents as opposed to normal meaning of exchange rate
     
@@ -107,48 +109,6 @@ clean_attributes<-function(baa){
     ba
 }
 
-
-
-get_first_lates<-function(con_drv){
-  sql_first_lates<-"
-      select latest.fk_loan
-  ,earliest_date,latest_date
-  ,in_arrears_since_days_7_plus_first
-  ,in_arrears_since_days_14_plus_first 
-  ,in_arrears_since_days_30_plus_first 
-  ,in_arrears_since_days_60_plus_first
-  ,in_arrears_since_days_90_plus_first 
-  ,coalesce(in_arrears_since_days_7_plus_first,latest_date)-earliest_date as surv_time_7
-  ,coalesce(in_arrears_since_days_14_plus_first,latest_date)-earliest_date as surv_time_14
-  ,coalesce(in_arrears_since_days_30_plus_first,latest_date)-earliest_date as surv_time_30
-  ,coalesce(in_arrears_since_days_60_plus_first,latest_date)-earliest_date as surv_time_60
-  ,coalesce(in_arrears_since_days_90_plus_first,latest_date)-earliest_date as surv_time_90
-  ,in_arrears_since_days_7_plus_first is not null as late_7
-  ,in_arrears_since_days_14_plus_first is not null as late_14
-  ,in_arrears_since_days_30_plus_first is not null as late_30
-  ,in_arrears_since_days_60_plus_first is not null as late_60
-  ,in_arrears_since_days_90_plus_first is not null as late_90
-  FROM 
-  (select  p.fk_loan, min(iso_date) earliest_date, max(iso_date) latest_date from base.de_payments  p
-    join
-	    base.loan_payback lp
-    on
-        p.dwh_country_id=lp.dwh_country_id and 
-        p.fk_loan=lp.fk_loan
-    where lp.state <>'payback_complete'
-
-
-group by p.fk_loan) latest
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_7_plus_first from base.de_payments where in_arrears_since_days>7 group by fk_loan ) f7  on (latest.fk_loan=f7.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_14_plus_first from base.de_payments where in_arrears_since_days>14 group by fk_loan ) f14 on (latest.fk_loan=f14.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_30_plus_first from base.de_payments where in_arrears_since_days>31 group by fk_loan ) f30 on (latest.fk_loan=f30.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_60_plus_first from base.de_payments where in_arrears_since_days>62 group by fk_loan ) f60 on (latest.fk_loan=f60.fk_loan)
-  left join (select  fk_loan, min(iso_date) in_arrears_since_days_90_plus_first from base.de_payments where in_arrears_since_days>93 group by fk_loan ) f90 on (latest.fk_loan=f90.fk_loan)
-  order by fk_loan"
-  
-  dbGetQuery(con_drv[[1]],sql_first_lates)
-  
-}
 
 
 business_after_tax<-function(from_business){

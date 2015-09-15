@@ -20,6 +20,32 @@ require(survival)
 # store models with training data
 # split out model from generic code...
 
+is_late<-function (arrears_since, reporting_date){
+    !is.na(arrears_since) & (arrears_since<reporting_date)
+}
+
+first_lates_reporting_date<-function(df,reporting_date){
+    lates=c(7,14,30,60,90)
+    late_fields <- paste0('late_', as.character(lates))
+    in_arrears_fields<-paste0('in_arrears_since_days_', as.character(lates),'_plus_first')
+    surv_fields<-paste0('surv_time_', as.character(lates))
+    
+    for (i in 1:length(lates)){
+        
+        df[surv_fields[[i]]]<-pmin(
+                                    df[paste0('in_arrears_since_days_', as.character(lates[[i]]),'_plus_first')],
+                                    df$latest_date,
+                                    reporting_date,na.rm=T)-df$payout_date
+    }
+    
+    df[late_fields]<-lapply(lates,
+                            function (late) 
+                                is_late(df[paste0('in_arrears_since_days_', as.character(late),'_plus_first')],reporting_date))
+    # remove loans that have not required payment before reporting_date
+    df[df$earliest_date<reporting_date,]
+    
+}
+
 
 summary_reals<-function(dt, target,real_vars){
   list_sum<-lapply(real_vars,function (f) dt[,c(variable=f,N=.N, as.list(summary(get(f)))),keyby=get(target)])
