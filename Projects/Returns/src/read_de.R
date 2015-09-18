@@ -4,6 +4,48 @@ require("reshape2")
 require("lubridate")
 
 
+is_late<-function (arrears_since, reporting_date){
+    !is.na(arrears_since) & (arrears_since<reporting_date)
+}
+
+late_name<-function (late) paste0('late_', as.character(late))
+surv_name<-function (late) paste0('surv_time_', as.character(late))
+in_arrears_name<-function (late) paste0('in_arrears_since_days_', as.character(late),'_plus_first')
+
+first_lates_reporting_date_all<-function(df,reporting_date){
+    lates=c(7,14,30,60,90)
+    late_fields <- lapply(lates, late_name)
+    surv_fields<- lapply(lates, surv_name)
+    
+    df[surv_fields]<-
+        lapply(lates,
+               function(late) 
+                   as.numeric(pmin( df[[in_arrears_name(late)]],
+                         df$latest_date,
+                         reporting_date,na.rm=T)-df$payout_date),units='days')
+    
+    df[late_fields]<-lapply(lates,
+                            function (late) 
+                                is_late(df[[in_arrears_name(late)]],reporting_date))
+    
+    # remove loans that have not required payment before reporting_date
+    df[df$earliest_date<reporting_date,]
+    
+}
+
+first_lates_reporting_date<-function(df,late,reporting_date){
+    
+    df[surv_name(late)]<-as.numeric(pmin(df[[in_arrears_name(late)]],
+                              df$latest_date,
+                              reporting_date,na.rm=T)-df$payout_date,units='days')
+    
+    df[late_name(late)]<-is_late(df[[in_arrears_name(late)]],reporting_date)
+    
+    # remove loans that have not required payment before reporting_date
+    df[df$earliest_date<reporting_date,]
+    
+}
+
 
 
 get_accounts<-function(con_drv,borrowers_str){
@@ -77,8 +119,7 @@ clean_attributes<-function(baa){
     ba$user_income_employment_length_date[ba$user_income_employment_length=="01.12.21985"]=ymd("19851201")
     ba$user_income_employment_length_date[ba$user_income_employment_length=="2012-01-01.2012"]=ymd("20120101")  
     
-    ba$user_income_employment_length_months<-
-        interval(ba$user_income_employment_length_date,ba$loan_request_creation_date)/months(1)
+    
     
     # euros marks not cents as opposed to normal meaning of exchange rate
     
@@ -105,10 +146,15 @@ clean_attributes<-function(baa){
     # child benefit already in euros not cents
     
     facs<-c("gender", "marital_status","user_expenses_home","user_income_employment_status","user_income_employment_type")
-    ba[,facs]<-lapply(ba[,facs],as.factor)
+    ba[,facs]<-lapply(ba[facs],as.factor)
+    
+    
     ba
 }
 
+pmt<-function(rate,nper,pv){
+    pv*rate*(1+rate)^nper/((1+rate)^nper-1)
+}
 
 
 business_after_tax<-function(from_business){
