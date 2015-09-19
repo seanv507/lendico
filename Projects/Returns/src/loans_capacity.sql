@@ -2,7 +2,7 @@ select
   l.*, 
   left(l.rating,1) as rating_base,
   
-  gblrc.user_campaign, 
+  
   gblrc.credit_agency_score, 
   gblrc.pd, 
   gblrc.pd_original, 
@@ -21,8 +21,8 @@ select
   lp.payback_day,
   lppi_first.first_payback_date,
   
-  gblrc.rating, 
-  gblrc.rating_mapped,
+  gblrc.rating gblrc_rating, 
+  gblrc.rating_mapped gblrc_rating_mapped,
   left(gblrc.rating_mapped,1) as gblrc_rating_mapped_base,
   
   ranking.rating as ranking_rating, 
