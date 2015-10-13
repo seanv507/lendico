@@ -21,6 +21,10 @@ require(survival)
 # split out model from generic code...
 
 
+logist<-function(x) 1/(1 + exp (- x))
+anti_logist<-function (p) log(p) -log(1-p)
+
+
 summary_reals<-function(dt, target,real_vars){
   list_sum<-lapply(real_vars,function (f) dt[,c(variable=f,N=.N, as.list(summary(get(f)))),keyby=get(target)])
   df_sum<-do.call(rbind,list_sum)

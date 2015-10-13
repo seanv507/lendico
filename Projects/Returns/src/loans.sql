@@ -38,4 +38,5 @@ join base.loan_payback lp on
 	l.id_loan=lp.fk_loan
 where
 	l.state!='canceled' and
+	l.sme_flag=0 and
     originated_since is not null

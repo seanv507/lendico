@@ -12,16 +12,23 @@ import os
 import re
 import fnmatch
 
-
-
-
 import string
 
 import functools
 
+def get_filenames(startdir,pattern):
+    # need to find a way of excluding xl backup files ~xxx ?
+# glob is not recursive
+    matches = []
+    for root, dirnames, filenames in os.walk(startdir):
+        for filename in fnmatch.filter(filenames, pattern):
+            matches.append(os.path.join(root, filename))    
+    return matches
+
 #@functools.lru_cache(maxsize=4095)
 def edit_distance(s, t):
     # http://rosettacode.org/wiki/Levenshtein_distance#Python
+    # thought about matching names..
 	if not s: return len(t)
 	if not t: return len(s)
 	if s[0] == t[0]: return ld(s[1:], t[1:])
@@ -69,14 +76,6 @@ def row_col(address):
         col += ps*pw
     return row,col
 
-def get_filenames(startdir,pattern):
-    # need to find a way of excluding xl backup files ~xxx ?
-# glob is not recursive
-    matches = []
-    for root, dirnames, filenames in os.walk(startdir):
-        for filename in fnmatch.filter(filenames, pattern):
-            matches.append(os.path.join(root, filename))    
-    return matches
     
 def read_capacity(wb, capacity_table):
     n_values = capacity_table.shape[0]
@@ -89,9 +88,19 @@ def read_capacity(wb, capacity_table):
         value_cell = capacity_table['value_cell'].loc[i_value]
         try:
             sheet = wb.sheet_by_name(sheet_name)
-            key_text_value = sheet.cell_value(*row_col(key_cell))
+            if len(key_cell)>4:
+                key_text_value=key_cell
+            else:
+                key_text_value = sheet.cell_value(*row_col(key_cell)).strip()
+            # hack!! for comments cell (in selfemployed) cell not titled so we split on ':'
             if key_text_value!="":
                 value_cell_value = sheet.cell_value(*row_col(value_cell))
+                
+                if hasattr(key_text_value,'strip'):
+                    key_text_value=key_text_value.strip()
+                if hasattr(value_cell_value,'strip'):
+                    value_cell_value=value_cell_value.strip()
+                    
                 values[key_text_value] = value_cell_value
         except (xlrd.XLRDError, IndexError), e:
             pass
@@ -153,33 +162,12 @@ def read_loan_nr(con, loan_nrs,id_loan_requests):
             lr.id_loan_request in {1})'''.format(l_n_s,i_l_s)
     df=pd.read_sql_query(sql,con)
     return df
-    
-def script():
-    # pasting from history
-    filenamespu=get_filenames(u'../users','*.xlsm')
-    df1=filename_analyse(filenamespu)
-    underwriting_df=load_underwriting(filenamespu)
-    con=dwh.get_DWH()
-    lr_lookup=read_loan_nr(con, df1.loan_nr.dropna(), df1.id_loan_request.dropna())
-    df2=df1.merge(lr_lookup,how='left', 
-                  left_on='loan_nr',
-                  right_on='loan_request_nr',
-                  suffixes=('_orig','_loan_nr'))
-    df3=df2.merge(lr_lookup,how='left', 
-                  left_on='id_loan_request_orig',
-                  right_on='id_loan_request',
-                  suffixes=('','_id_loan_request'))
-                 
-    mg=underwriting_df.reset_index().merge(df3,left_on='filename',right_on='fullname')
-    underwriting_merge=mg[column_ordering]
-    underwriting_merge.shape
-    underwriting_merge.to_csv('underwriting_data.csv', encoding='utf-8')
+
 
 column_ordering=[
 'filename',
 'IOError',
-
-
+'checked',
 'loan_nr',
 u'loan_request_nr',
 u'loan_request_nr_id_loan_request',
@@ -196,9 +184,15 @@ u'id_user_id_loan_request',
 u'Last Name',
 u'last_name',
 u'last_name_id_loan_request',
+u'last_name_comb',
+u'l_last_name',
+u'lr_last_name',
 u'First Name',
 u'first_name',
 u'first_name_id_loan_request',
+u'first_name_comb',
+u'l_first_name',
+u'lr_first_name',
 u'Gender',
 u'Gehalt / Rente s. Abrechnung',
 u'Gehalt s. Abrechnung',

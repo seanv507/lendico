@@ -1,11 +1,13 @@
 require('lubridate')
+require('zoo')
 require('survival')
 require('plyr')
 require('stringr')
-
+require('rms')
+require('Hmisc')
 
 # NEED TO SET WORKING DIRECTORY
-setwd("~/Projects/lendico/Projects/Returns/src")
+setwd("~/Projects/lendico/Projects/Capacity/src")
 
 source('../../../lib/read_postgresql.R')
 
@@ -22,13 +24,6 @@ lendi_loans[fac1] <- lapply(lendi_loans[fac1],as.factor)
 lendi_loans['in_arrears_since_combined_days']=NA
 lendi_loans[!is.na(lendi_loans['in_arrears_since_combined']),'in_arrears_since_combined_days'] = 
     interval(lendi_loans[!is.na(lendi_loans['in_arrears_since_combined']),'in_arrears_since_combined'],now())/edays(1)
-
-
-
-
-
-
-
 
 
 #   loans_attribute_late<-merge(x = loans_attribute, y = loans_first_lates, by.x="id_loan", by.y = "fk_loan", all=FALSE)
@@ -48,14 +43,15 @@ borrower_attribute<-get_attributes(con_drv,borrowers_str)
 # attributes takes long to load!!
 borrower_attribute1<-clean_attributes(borrower_attribute)
 
-web_indebtedness=read.csv('../../Capacity/src/web_indebtedness.csv')
+web_indebtedness=read.csv('../../Capacity/src/web_indebtedness_20150919.csv')
 
-web_capacity<-read.csv('../../Capacity/src/web_capacity_20150917.csv')
-within( web_capacity,
+web_capacity<-read.csv('../../Capacity/src/web_capacity_20150919.csv')
+within( web_capacity,{
         Postcheck.available_cash<-Postcheck.Income.total - Postcheck.Expenses.total
         Loan.Request.installment<-pmt(Loan.Request.interestPerYearInPercent/1200,
                                       Loan.Request.durationInMonth,
                                       Loan.Request.principalAmount)
+}
 )
 
 
@@ -165,15 +161,308 @@ loan_arrears$is_30dpd[is.na(loan_arrears$is_30dpd)]=FALSE
 a<-loans_account_attribute_lates[!is.na(loans_account_attribute_lates['in_arrears_since_combined_days'])&loans_account_attribute_lates['in_arrears_since_combined_days']>=91,]
 write.csv(a,file('clipboard-128'))
 
+df<-read.csv('gblrc_web_ind_web_cap_underwriting_first_lates_EOM_dpd_20150919c.csv')
+
+late_x_eom_M<-function(df,dpd,payout_months){
+    # define target variable - na if row is too young otherwise 0/1
+    surv_month=paste('surv_months',dpd,'eom',sep='_')
+    late=paste('late',dpd,'eom',sep='_')
+    
+    target<-df[late] & (df[surv_month]<payout_months)
+    #TODO standardise payout months to date!!
+    target[df$payout_age_months<payout_months]<-NA
+    target
+}
 
 
 
-my.fit<-survfit(Surv(surv_time_90, late_90) ~1)
+binom_conf_interval<-function (bool,prob){
+    a<-(1-prob)/2
+    hits=sum(bool,na.rm=T)
+    misses=sum(!bool,na.rm=T)
+    res<-list(
+                count=sum(!is.na(bool)),
+                hits=hits,
+                misses=misses,
+                mean=mean(bool,na.rm=T),
+                lower_CI=qbeta(a,hits+.5,misses+0.5),
+                upper_CI=qbeta(1-a,hits+.5,misses+0.5))
+    res
+}
+
+
+df$late_90_eom_6m<-late_x_eom_M(df,90,6)
+
+my.fit<-survfit(Surv(df$surv_time_90_eom, df$late_90_eom) ~1)
+
+plot(my.fit)
+
+
 capture.output(summary(my.fit),file=file('clipboard-128'))
 
+km_vars<-c('duration_in_months','payout_quarter','marital_status', 'user_income_employment_status','user_expenses_home')
+km_vars_fits<-list()
+km_vars_default_rate<-list()
+for (f in km_vars){
+    km_vars_fits[[f]]<-npsurv(Surv(df$surv_time_90_eom, df$late_90_eom)~df[[f]])
+    f_name=paste0('sp_surv90_',f, '.emf')
+    win.metafile(f_name)
+    survplot(km_vars_fits[[f]],ylim=c(0,.3),col=seq(km_vars_fits[[f]]$strata), n.risk=T,y.n.risk=.15,levels.only=T, xlab='Observation time', ylab='Default probability', fun=function(x) 1-x)
+    dev.off()
+}
 
-my.fit.duration<-survfit(Surv(surv_time_90, late_90) ~duration_months)
+f<-'overall'
+km_vars_fits[[f]]<-npsurv(Surv(df$surv_time_90_eom, df$late_90_eom)~1)
 
+default_rate_name<-paste(f,90,'6M',sep='_')
+km_vars_default_rate[[default_rate_name]]<-binom_conf_interval(df$late_90_eom_6m,.95)
+
+default_rate_name<-paste(f,90,'9M',sep='_')
+km_vars_default_rate[[default_rate_name]]<-binom_conf_interval(df$late_90_eom_9m,.95)
+default_rate_name<-paste(f,90,'12M',sep='_')
+km_vars_default_rate[[default_rate_name]]<-binom_conf_interval(df$late_90_eom_12m,.95)
+              
+
+f_name=paste0('sp_surv90_',f, '.emf')
+#win.metafile(f_name)
+survplot(km_vars_fits[[f]],ylim=c(.85,1), n.risk=T, 
+         main='Portfolio 90+ survival curve', xlab='Observation time', ylab='Default probability')
+default_rate_name<-paste(f,90,'6M',sep='_')
+
+mnths <- seq(6,12,3)
+x <-30 * mnths
+y <- sapply(mnths,function (x) km_vars_default_rate[[paste0('overall_90_',x,'M')]]$mean)
+y_m <- sapply(mnths,function (x) km_vars_default_rate[[paste0('overall_90_',x,'M')]]$lower_CI)
+y_p <- sapply(mnths,function (x) km_vars_default_rate[[paste0('overall_90_',x,'M')]]$upper_CI)
+# showing survival not default so lower bound -> upper
+errbar(x,1-y,1-y_m, 1-y_p, add=T)
+points(6*30, 1 - km_vars_default_rate[[default_rate_name]]$mean, pch=19)
+default_rate_name<-paste(f,90,'9M',sep='_')
+points(9*30, 1 - km_vars_default_rate[[default_rate_name]]$mean, pch=19)
+default_rate_name<-paste(f,90,'12M',sep='_')
+points(12*30, 1 - km_vars_default_rate[[default_rate_name]]$mean, pch=19)
+title(main='Kaplan-Meier estimate: Portfolio 90+')
+# we are using EOM so observation date is 90+30
+x1<-seq(90+30,700,90)
+lam<- -log(1-0.05)
+lam1<- -log(1-0.08)
+y1<-exp(-lam * (x1-(90+30))/365)
+y2<-exp(-lam1 * (x1-(90+30))/365)
+lines(x1,y1,col=2)
+lines(x1,y2,col=3)
+# dashed line
+abline(h=.95, col=2, lty=3)
+abline(v=365+90+30, col=2, lty=3)
+legend(50,.95,legend=c('overall','5% annual pd', '8% annual pd'),fill=seq(3))
+
+#dev.off()
+
+# todo add error bars other estimates
+
+my.fit.duration<-survfit(Surv(df$surv_time_90_eom, df$late_90_eom) ~df$duration_in_months)
+plot(my.fit.duration, main="Kaplan-Meier estimate Loan Duration", 
+     xlab="time", 
+     ylab="survival function", 
+     col=seq(6),ymin=.85,
+     
+     yscale=100)
+z1<-sort(unique(df$duration_in_months))
+#z2<-c("overall",z1)
+legend(50,.95,legend=z1,fill=seq(6))
+
+my.fit.duration_fraction<-survfit(Surv(df$surv_time_90_eom/df$duration_in_months/30, df$late_90_eom) ~df$duration_in_months)
+plot(my.fit.duration_fraction, main="Kaplan-Meier estimate Loan Duration", 
+      xlab="time", 
+      ylab="survival function", 
+      col=seq(6),ymin=.85,
+     yscale=100)
+z1<-sort(unique(df$duration_in_months))
+#z2<-c("overall",z1)
+legend(.05,.93,legend=z1,fill=seq(6))
+
+
+my.fit<-survfit(Surv(df$surv_time_90_eom, df$late_90_eom) ~1)
+plot(my.fit, main="Kaplan-Meier estimate: Portfolio 90+", 
+     xlab="observation time", 
+     ylab="survival function", 
+     ymin=.85,
+     yscale=100)
+x1<-seq(0,700,90)
+lam<- -log(1-0.05)
+y1<-exp(-lam * (x1-90)/365)
+lines(x1,y1,col=2)
+# dashed line
+abline(h=.95, col=2, lty=3)
+legend(50,.95,legend=c('overall','5% annual pd'),fill=seq(2))
+
+
+my.fit.payout_quarter<-survfit(Surv(df$surv_time_90_eom, df$late_90_eom) ~df$payout_quarter)
+plot(my.fit, main="Kaplan-Meier estimate Payout quarter 90+", 
+     xlab="time", 
+     ylab="survival function", 
+     ymin=.85,
+     yscale=100)
+lines(my.fit.payout_quarter, main="Kaplan-Meier estimate Payout quarter", 
+     xlab="time", 
+     ylab="survival function", 
+     col=seq(2,9),ymin=.85,
+     yscale=100)
+z1<-sort(unique(payout_quarter))
+z2<-c("overall",as.character(z1))
+legend(50,.95,legend=z2,fill=seq(9))
+capture.output(summary(my.fit.payout_quarter),file=file('clipboard-128'))
+
+# schufa rating
+
+plot_km<-function(df, factor, selection){
+    fit_it<-survfit(Surv(df$surv_time_90_eom[selection], df$late_90_eom[selection]) ~df[selection, factor])
+    z1<-sort(unique(df[selection,factor]))
+    cols<-seq(length(z1))
+    plot(fit_it, main=paste0("Kaplan-Meier estimate 90+ ", factor), 
+         xlab="observation time", 
+         ylab="survival function", 
+         col=cols,ymin=.85,
+         yscale=100)
+    z2<-as.character(z1)
+    return (list(fit_it, z2))
+}
+
+
+fit_leg<-plot_km(df, 'credit_agency_rating', df$credit_agency_rating %in% c('A','B','C','D','E','F','G'))
+my.fit.credit_agency_rating<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+df, 'credit_agency_rating', df$credit_agency_rating %in% c('A','B','C','D','E','F','G'))
+
+
+fit_leg<-plot_km(df, 'user_campaign', df$user_campaign %in% c('other','creditolo','credit12'))
+my.fit.user_campaign<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+fit_leg<-plot_km(df, 'marital_status', T)
+my.fit.marital_status<-fit_leg[[1]]
+legend(50,.85,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+# marital_status_score=pd.read_csv(StringIO.StringIO(\
+#        """status                  counts  score      
+#        married                 1755    1
+#        single                  1378    0
+#        divorced                 449    1
+#        separated                103    1
+#        widowed                   95    0
+#        domestic_partnership      57    -1
+#        partnership               19    -1
+#        married_b                 1     -1"""),sep="\s+", index_col=0)
+# user_income_employment_status_score=pd.read_csv(StringIO.StringIO(\
+#   """status             counts        score
+#   salaried              1922          -1
+#   self_employed         1118           2
+#   public_official        299          -2 
+#   retired                258          -1
+#   manual_worker          136           0
+#   freelancer              95           2
+#   student                 10           2 
+#   soldier                  7           0
+#   welfare                  5           2
+#   house_wife_husband       1           2"""),sep="\s+", index_col=0)
+
+
+#      """status             counts        score    
+#      rent                   2008          0
+#      own                    1370         -1 
+#      living_with_parents     445          0
+#      family                   18          0
+#      other                    1           0"""),sep="\s+", index_col=0)
+# df['user_income_employment_status_score'] = \
+# df['user_income_employment_status'].map(user_income_employment_status_score.score)
+# df['user_expenses_home_score'] = \
+# df['user_expenses_home'].map(user_expenses_home.score)
+#df.user_income_employment_length_months.describe(
+#    count    2781.000000
+#    mean      114.051420
+#    std       108.243357
+#    min         0.000000
+#    25%        32.000000
+#    50%        78.000000
+#    75%       171.000000
+#    max      1004.00000
+
+
+
+# 'marital_status', 'user_income_employment_status',
+# 'user_income_employment_length_months_score', 
+# 'gender']
+
+fit_leg<-plot_km(df, 'user_income_employment_status', df$user_income_employment_status %in% 
+                     c('salaried','self_employed','public_official','retired','manual_worker','freelancer') )
+my.fit.user_income_employment_status<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+user_income_employment_length_months_score
+fit_leg<-plot_km(df, 'user_income_employment_length_months_score', T )
+my.fit.user_income_employment_length_months_score<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+
+fit_leg<-plot_km(df, 'gender', T )
+my.fit.gender<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+fit_leg<-plot_km(df, 'user_expenses_home', T )
+my.fit.user_expenses_home<-fit_leg[[1]]
+legend(50,.95,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+
+fit_leg<-plot_km(df, 'user_age_score', T )
+my.fit.user_age_score<-fit_leg[[1]]
+legend(50,.90,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+fit_leg<-plot_km(df, 'h..Ergebnis.Kalkulation_quartile', T )
+my.fit.capacity_quartile<-fit_leg[[1]]
+legend(50,.90,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+fit_leg<-plot_km(df, 'a..Summe.Einnahmen_quartile', T )
+my.fit.income_quartile<-fit_leg[[1]]
+legend(50,.90,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+df$Postcheck.Income.total_quartile=(cut(df$Postcheck.Income.total,quantile(df$Postcheck.Income.total,seq(0,1,0.25),na.rm=T)))
+
+
+
+
+fit_leg<-plot_km(df, 'Postcheck.Income.total_quartile', T )
+my.fit.income_web_quartile<-fit_leg[[1]]
+legend(50,.90,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+df$free_capacity_to_income<-df[['h..Ergebnis.Kalkulation']]/df[['a..Summe.Einnahmen']]
+df$free_capacity_to_income_score<-cut( df$free_capacity_to_income,breaks=c(-1000,.25,.42,200))
+
+
+
+fit_leg<-plot_km(df, 'free_capacity_to_income_score', T )
+my.fit.free_capacity_to_income<-fit_leg[[1]]
+legend(50,.90,legend=fit_leg[[2]],fill=seq(length(fit_leg[[2]])))
+
+
+
+plot(my.fit.credit_agency_rating, main="Kaplan-Meier estimate Credit Agency Rating 90+", 
+      xlab="observation time", 
+      ylab="survival function", 
+      col=seq(1,12),ymin=.85,
+      yscale=100)
+z1<-sort(unique(credit_agency_rating))
+z2<-as.character(z1)
+legend(50,.95,legend=z2,fill=seq(12))
+
+
+
+
+my.fit.<-survfit(Surv(surv_time_90, late_90) ~duration_months)
 
 my.fit.EOM<-survfit(Surv(surv_time_90_eom, late_90_eom) ~1)
 capture.output(summary(my.fit.EOM),file=file('clipboard-128'))
@@ -296,16 +585,18 @@ legend(300,1,legend=z2,fill=seq(length(z2)))
 detach(loans_account_attribute_lates_lates_EOM_indebt)
 attach(loans_account_attribute_lates_lates_EOM_indebt)
 
-more_than_nine_months_ago<-payout_date<=as.Date('2015-01-01')
-
-defaulted_within_nine_months<-(more_than_nine_months_ago & (surv_time_90_eom<9*31) & late_90_eom)
 
 loans_account_attribute_lates_lates_EOM_indebt[defaulted_within_nine_months, c('id_loan','payout_date','duration_months','surv_time_90')]
 
 
+underwriting_merge_red=read.csv('../../Capacity/src/underwriting_merge_red_20150919.csv')
 
-
-
+loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting<-merge(
+        x=loans_account_attribute_lates_lates_EOM_indebt_cap,
+        y= underwriting_merge_red,
+        by.x="loan_nr",
+        by.y="loan_request_nr_comb_over",
+        all.x=TRUE)
 
 loans_attribute_late3$total_net_income_nib_p<-total_net_income_it(loans_attribute_late3)
 loans_attribute_late3[c(1416,1451),grep("user_income",names(loans_attribute_late3))]
@@ -348,6 +639,9 @@ vars<-c("credit_agency_score_logist","gender", "user_age_f", "marital_status",
         "user_income_employment_status_f","user_income_employment_type_f" ,
         "user_income_employment_length_months_f","user_expenses_home_f")
 
+within(loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting,
+       credit_agency_score_logist<-anti_logist(1-credit_agency_score/10000)
+)
 
 replace_NA<-function (fac){
     fac<-factor(fac, levels=c(levels(fac),'NAF'))
@@ -355,9 +649,11 @@ replace_NA<-function (fac){
     fac
 }
 
-loans_account_attribute_lates_lates_EOM_indebt<-loans_account_attribute_lates_lates_EOM_indebt[-as.logical(sme_flag),]
+loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting<-
+    loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting[
+            -as.logical(loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting$sme_flag),]
 
-within(loans_account_attribute_lates_lates_EOM_indebt,{
+within(loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting,{
     credit_agency_score_quartile<-cut(credit_agency_score,quantile(credit_agency_score,seq(0,1,0.25)))
     user_income_employment_length_months_f<-cut(user_income_employment_length_months,c(0,24,60),right=F)
     user_income_employment_length_months_f<-replace_NA(user_income_employment_length_months_f)
@@ -368,8 +664,13 @@ within(loans_account_attribute_lates_lates_EOM_indebt,{
     
     # home leave as is ( but deal with NA)
     user_expenses_home_f<-replace_NA(user_expenses_home)
+    more_than_nine_months_ago<-payout_date<=as.Date('2015-01-01')
+    
+    defaulted_within_nine_months<-(more_than_nine_months_ago & (surv_time_90_eom<9*31) & late_90_eom)
+    
 })
-loans_account_attribute_lates_lates_EOM_indebt<-merge(loans_account_attribute_lates_lates_EOM_indebt,
+
+loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting<-merge(loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting,
                                                       employment_status_lookup)
 
 tapply(loans_account_attribute_lates_lates_EOM_indebt$defaulted_within_nine_months[more_than_nine_months_ago],

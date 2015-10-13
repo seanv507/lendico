@@ -157,6 +157,8 @@ pmt<-function(rate,nper,pv){
 }
 
 
+
+
 business_after_tax<-function(from_business){
   from_business[is.na(from_business)]<-0
   from_business *
@@ -170,6 +172,9 @@ replaceNA<-function (x,repl=0){
   x
 }	
 
+plot_bar(a1<-)
+# plot confidence intervals
+# bar of amounts
 
 # strip_ui<-function(x){substring(x,13,999)}
 # inc_cols1<-lapply(inc_cols,strip_ui)
