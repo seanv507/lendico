@@ -5,6 +5,7 @@ require('plyr')
 require('stringr')
 require('rms')
 require('Hmisc')
+require(data.table)
 
 # NEED TO SET WORKING DIRECTORY
 setwd("~/Projects/lendico/Projects/Capacity/src")
@@ -58,7 +59,7 @@ within( web_capacity,{
 
 first_lates<-dbGetQuery(con_drv[[1]],read_string('first_lates.sql'))
 first_lates_EOM<-dbGetQuery(con_drv[[1]],read_string('first_lates_EOM.sql'))
-
+first_lates_EOM_month<-dbGetQuery(con_drv[[1]],read_string('first_lates_EOM_month.sql'))
 #merge data
 
 intersect(names(lendi_loans), names(borrowers))
@@ -163,6 +164,11 @@ write.csv(a,file('clipboard-128'))
 
 df<-read.csv('gblrc_web_ind_web_cap_underwriting_first_lates_EOM_dpd_20150919c.csv')
 
+df<-read.csv('gblrc_web_ind_web_cap_underwriting_first_lates_EOM_dpd_20150919c_mrk.csv')
+
+df$user_expenses_home_score<-as.factor(df$user_expenses_home_score)
+df$user_income_employment_status_score<-as.factor(df$user_income_employment_status_score)
+cv.f
 late_x_eom_M<-function(df,dpd,payout_months){
     # define target variable - na if row is too young otherwise 0/1
     surv_month=paste('surv_months',dpd,'eom',sep='_')
@@ -193,12 +199,113 @@ binom_conf_interval<-function (bool,prob){
 
 df$late_90_eom_6m<-late_x_eom_M(df,90,6)
 
+sql_schufa_scoring<-read_string('schufa_scoring.sql')
+schufa_scoring<-dbGetQuery(con_drv[[1]],sql_schufa_scoring)
+dt_schufa_scoring=data.table(schufa_scoring)
+
 my.fit<-survfit(Surv(df$surv_time_90_eom, df$late_90_eom) ~1)
 
 plot(my.fit)
 
+lendico_score<-function(df, debug=F){
+    # should treat as logistic function?
+    beta=+0.11713
+    #schufa
+    schufa_adj<- 0.7*(1-df$credit_agency_score/10000)
+    schufa_var<-logit(schufa_adj)
+    
+    s<-schufa_var
+    s1<-s
+    
+    # age in years
+    age = (df$user_age_score=='(17, 30]')*1 + (df$user_age_score=='(45, 76]')*-1 
+    s <- s + beta * age
+    s2<-s
+    
+    s <- s + beta * df$marital_status_score
+    s3<-s
+    
+    s <- s + beta * df$user_income_employment_status_score
+    s4<-s
+    
+    el <- (df$user_income_employment_length_months_score== "[0, 24)") - (df$user_income_employment_length_months_score== "[60, 1200)")
+    s <- s + beta * el
+    s5<-s
+    
+    s <- s + beta * df$user_expenses_home_score
+    s6<-s
+    
+    exp_to_inc <- (df$Postcheck.Income.total - df$Postcheck.Expenses.total)/df$Postcheck.Income.total
+    # note excluding instalment
+    s <- s + beta * 2 * ((exp_to_inc<=.25) - (exp_to_inc>.42))
+    s7<-s
+    
+    pd<-logistic(s)
+    pd<-pmin(.124,pd)
+    pd<-pmax(0.01,pd)
+    pd[ df$user_income_employment_status %in% c('freelancer','self_employed') ] <- 
+        pmax(0.0301,pd[ df$user_income_employment_status %in% c('freelancer','self_employed') ])
+    # changed september 17 2015 to 1.23%
+    if (debug){
+        data.frame(s1,s2,s3,s4,s5,s6,s7,pd)
+    }else pd
+    
+}
+
+gini(df$lendico_s[!is.na(df$late_60_eom_6m)],df$late_60_eom_6m[!is.na(df$late_60_eom_6m)])
+
+
+base_formula<-formula(~ credit_agency_pd_logit + 
+                          user_age + user_age_score +
+                          marital_status + 
+                          user_income_employment_status_score + 
+                          user_income_employment_length_months_score + 
+                          user_expenses_home_score+
+                          gender + 
+                          Postcheck.Income.total +
+                          Postcheck.Expenses.total -1
+                          )
+
+schufa_spline_formula<-formula(~  rcs(credit_agency_pd_logit, c(-3.4389536, -2.7235144 ,-2.0243010)))
+
+base_formula_y<-formula(late_60_eom_9m ~ credit_agency_pd_logit + 
+                          user_age + user_age_score +
+                          marital_status + 
+                          user_income_employment_status_score + 
+                          user_income_employment_length_months_score + 
+                          user_expenses_home_score+
+                          gender + Postcheck.Income.total
+                      + Postcheck.Expenses.total
+)
+
+
+x<-model.matrix(base_formula,data=df[!is.na(df$late_60_eom_9m),])
+
+x_schufa<-model.matrix(schufa_spline_formula,data=df[!is.na(df$late_60_eom_9m),])
+y<-df$late_60_eom_9m[!is.na(df$late_60_eom_9m)]==1
+x_30_6m<-model.matrix(base_formula,data=df[!is.na(df$late_30_eom_6m),])
+y_30_6m<-df$late_30_eom_6m[!is.na(df$late_30_eom_6m)]==1
+cv.fit<-cv.glmnet(x,y,family="binomial")
+cv.fit<-cv.glmnet(x_30_6m,y_30_6m,family="binomial")
+
+rp<-rpart(base_formula_y,data=df[!is.na(df$late_60_eom_9m),])
+
+logloss(1-df$credit_agency_score[!is.na(df$late_60_eom_6m) &is.finite(df$credit_agency_pd_logit)]/10000,
+        df$late_60_eom_6m[!is.na(df$late_60_eom_6m)&is.finite(df$credit_agency_pd_logit)]==1)
 
 capture.output(summary(my.fit),file=file('clipboard-128'))
+
+user_age_score
+credit_agency_pd_logit
+marital_status_score
+user_income_employment_status_score
+user_expenses_home_score
+user_income_employment_length_months_score
+
+score_card_vars=c('credit_agency_pd_logit', 'user_age_score', 'marital_status', 'user_income_employment_status_score',
+'user_income_employment_length_months_score', 
+'gender'
+
 
 km_vars<-c('duration_in_months','payout_quarter','marital_status', 'user_income_employment_status','user_expenses_home')
 km_vars_fits<-list()
@@ -635,12 +742,12 @@ public_official     "-2" "public_official" ')
 # 2 part_time   14
 # 3      <NA> 1189
 
-vars<-c("credit_agency_score_logist","gender", "user_age_f", "marital_status", 
+vars<-c("credit_agency_score_logit","gender", "user_age_f", "marital_status", 
         "user_income_employment_status_f","user_income_employment_type_f" ,
         "user_income_employment_length_months_f","user_expenses_home_f")
 
 within(loans_account_attribute_lates_lates_EOM_indebt_cap_underwriting,
-       credit_agency_score_logist<-anti_logist(1-credit_agency_score/10000)
+       credit_agency_score_logit<-logit(1-credit_agency_score/10000)
 )
 
 replace_NA<-function (fac){

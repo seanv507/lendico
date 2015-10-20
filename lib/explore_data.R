@@ -21,8 +21,9 @@ require(survival)
 # split out model from generic code...
 
 
-logist<-function(x) 1/(1 + exp (- x))
-anti_logist<-function (p) log(p) -log(1-p)
+logistic<-function(x) 1/(1 + exp (- x))
+#inverse logistic
+logit<-function (p) log(p) -log(1-p)
 
 
 summary_reals<-function(dt, target,real_vars){
@@ -246,7 +247,7 @@ gini<-function(predictions,labels){
   
 }
 
-logit<-function (x) 1/(1+exp(-x))
+
 
 logloss<-function(actual,target){
   err=-(target*log(actual)+(!target)*log(1-actual))
